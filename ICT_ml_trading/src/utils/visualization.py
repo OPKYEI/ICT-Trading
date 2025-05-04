@@ -1,14 +1,14 @@
 # src/utils/visualization.py
-
 """
 Visualization utilities: plot equity curves, drawdowns, and metric summaries.
 """
-
 import os
 from typing import Optional, Dict
-
-import pandas as pd
+import matplotlib
+# Use Agg backend for headless environments and testing
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def _ensure_dir(path: str) -> None:
