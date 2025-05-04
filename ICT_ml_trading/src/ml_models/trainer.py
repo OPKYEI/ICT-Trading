@@ -1,53 +1,54 @@
 # src/ml_models/trainer.py
-"""
-Training and hyperparameter search scaffolding for ML pipelines.
-"""
-from typing import Any, Dict, Optional, Tuple
-import numpy as np
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score
-from sklearn.base import BaseEstimator
 
-def train_with_grid_search(
+import os
+import pickle
+from typing import Any, Dict, Optional, Tuple
+
+import pandas as pd
+from sklearn.base import clone, BaseEstimator
+from sklearn.model_selection import ParameterGrid, ParameterSampler, cross_val_score
+from tqdm.auto import tqdm
+
+
+def grid_search_with_checkpoint(
     model: BaseEstimator,
     param_grid: Dict[str, Any],
     X: Any,
     y: Any,
     cv: int = 5,
     scoring: str = 'accuracy',
-    n_jobs: int = -1,
-    refit: bool = True
-) -> Tuple[BaseEstimator, Dict[str, Any]]:
-    """
-    Perform GridSearchCV on a given estimator pipeline.
+    checkpoint_path: str = 'grid_checkpoint.pkl',
+    resume: bool = True
+) -> Tuple[BaseEstimator, pd.DataFrame]:
+    grid = list(ParameterGrid(param_grid))
+    results = []
+    start = 0
 
-    Args:
-        model: Pipeline or estimator implementing .fit()
-        param_grid: dict of hyperparameters for grid search
-        X: feature data
-        y: target labels
-        cv: number of cross-validation folds
-        scoring: metric name for scoring
-        n_jobs: parallel jobs
-        refit: whether to refit best model on full data
+    if resume and os.path.exists(checkpoint_path):
+        saved = pickle.load(open(checkpoint_path, 'rb'))
+        results = saved['results']
+        start = len(results)
 
-    Returns:
-        best_model: estimator refit on full data
-        results: dictionary of cv results
-    """
-    grid = GridSearchCV(
-        estimator=model,
-        param_grid=param_grid,
-        cv=cv,
-        scoring=scoring,
-        n_jobs=n_jobs,
-        refit=refit,
-        return_train_score=True
-    )
-    grid.fit(X, y)
-    return grid.best_estimator_, grid.cv_results_
+    for params in tqdm(grid[start:], total=len(grid), desc='GridSearch'):
+        clf = clone(model).set_params(**params)
+        scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+        results.append({**params, 'mean_test_score': scores.mean()})
+        pickle.dump({'results': results}, open(checkpoint_path, 'wb'))
+
+    df = pd.DataFrame(results)
+    best_row = df.loc[df['mean_test_score'].idxmax()].to_dict()
+    best_params = {k: best_row[k] for k in param_grid}
+
+    # Cast float ints back to int for tree-based params
+    for k, v in best_params.items():
+        if isinstance(v, float) and v.is_integer():
+            best_params[k] = int(v)
+
+    best_model = clone(model).set_params(**best_params).fit(X, y)
+    return best_model, df
 
 
-def train_with_random_search(
+def random_search_with_checkpoint(
     model: BaseEstimator,
     param_distributions: Dict[str, Any],
     X: Any,
@@ -55,39 +56,33 @@ def train_with_random_search(
     cv: int = 5,
     scoring: str = 'accuracy',
     n_iter: int = 20,
-    n_jobs: int = -1,
     random_state: Optional[int] = None,
-    refit: bool = True
-) -> Tuple[BaseEstimator, Dict[str, Any]]:
-    """
-    Perform RandomizedSearchCV on a given estimator pipeline.
+    checkpoint_path: str = 'random_checkpoint.pkl',
+    resume: bool = True
+) -> Tuple[BaseEstimator, pd.DataFrame]:
+    sampler = list(ParameterSampler(param_distributions, n_iter=n_iter, random_state=random_state))
+    results = []
+    start = 0
 
-    Args:
-        model: Pipeline or estimator implementing .fit()
-        param_distributions: dict of hyperparameter distributions
-        X: feature data
-        y: target labels
-        cv: number of cross-validation folds
-        scoring: metric name for scoring
-        n_iter: number of parameter settings sampled
-        n_jobs: parallel jobs
-        random_state: seed for reproducibility
-        refit: whether to refit best model on full data
+    if resume and os.path.exists(checkpoint_path):
+        saved = pickle.load(open(checkpoint_path, 'rb'))
+        results = saved['results']
+        start = len(results)
 
-    Returns:
-        best_model: estimator refit on full data
-        results: dictionary of cv results
-    """
-    rnd = RandomizedSearchCV(
-        estimator=model,
-        param_distributions=param_distributions,
-        n_iter=n_iter,
-        cv=cv,
-        scoring=scoring,
-        n_jobs=n_jobs,
-        random_state=random_state,
-        refit=refit,
-        return_train_score=True
-    )
-    rnd.fit(X, y)
-    return rnd.best_estimator_, rnd.cv_results_
+    for params in tqdm(sampler[start:], total=len(sampler), desc='RandomSearch'):
+        clf = clone(model).set_params(**params)
+        scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+        results.append({**params, 'mean_test_score': scores.mean()})
+        pickle.dump({'results': results}, open(checkpoint_path, 'wb'))
+
+    df = pd.DataFrame(results)
+    best_row = df.loc[df['mean_test_score'].idxmax()].to_dict()
+    best_params = {k: best_row[k] for k in param_distributions}
+
+    # Cast float ints back to int for tree-based params
+    for k, v in best_params.items():
+        if isinstance(v, float) and v.is_integer():
+            best_params[k] = int(v)
+
+    best_model = clone(model).set_params(**best_params).fit(X, y)
+    return best_model, df
