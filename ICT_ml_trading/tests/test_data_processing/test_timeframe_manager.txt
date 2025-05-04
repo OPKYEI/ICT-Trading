@@ -1,0 +1,149 @@
+# tests/test_data_processing/test_timeframe_manager.py
+import pytest
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from src.data_processing.timeframe_manager import TimeframeManager
+
+class TestTimeframeManager:
+    
+    @pytest.fixture
+    def timeframe_manager(self):
+        """Create TimeframeManager instance"""
+        return TimeframeManager()
+    
+    @pytest.fixture
+    def sample_1h_data(self):
+        """Create sample 1H data"""
+        dates = pd.date_range(start='2023-01-01', end='2023-01-10', freq='1H')
+        data = {
+            'open': np.random.uniform(1.0, 1.1, len(dates)),
+            'high': np.random.uniform(1.1, 1.2, len(dates)),
+            'low': np.random.uniform(0.9, 1.0, len(dates)),
+            'close': np.random.uniform(1.0, 1.1, len(dates)),
+            'volume': np.random.randint(1000, 10000, len(dates))
+        }
+        df = pd.DataFrame(data, index=dates)
+        
+        # Ensure high is highest and low is lowest
+        df['high'] = df[['open', 'high', 'close']].max(axis=1)
+        df['low'] = df[['open', 'low', 'close']].min(axis=1)
+        
+        return df
+    
+    @pytest.fixture
+    def sample_5m_data(self):
+        """Create sample 5M data"""
+        dates = pd.date_range(start='2023-01-01', end='2023-01-02', freq='5T')
+        data = {
+            'open': np.random.uniform(1.0, 1.1, len(dates)),
+            'high': np.random.uniform(1.1, 1.2, len(dates)),
+            'low': np.random.uniform(0.9, 1.0, len(dates)),
+            'close': np.random.uniform(1.0, 1.1, len(dates)),
+            'volume': np.random.randint(100, 1000, len(dates))
+        }
+        df = pd.DataFrame(data, index=dates)
+        
+        # Ensure high is highest and low is lowest
+        df['high'] = df[['open', 'high', 'close']].max(axis=1)
+        df['low'] = df[['open', 'low', 'close']].min(axis=1)
+        
+        return df
+    
+    def test_get_parent_timeframe(self, timeframe_manager):
+        """Test getting parent timeframe"""
+        assert timeframe_manager.get_parent_timeframe('1H') == '4H'
+        assert timeframe_manager.get_parent_timeframe('15M') == '30M'
+        assert timeframe_manager.get_parent_timeframe('1M') is None
+    
+    def test_get_child_timeframes(self, timeframe_manager):
+        """Test getting child timeframes"""
+        children = timeframe_manager.get_child_timeframes('1H')
+        assert '30M' in children
+        
+        children = timeframe_manager.get_child_timeframes('5M')
+        assert '1M' in children
+    
+    def test_align_timeframes(self, timeframe_manager):
+        """Test aligning multiple timeframes"""
+        # Create data with different date ranges
+        dates1 = pd.date_range(start='2023-01-01', end='2023-01-10', freq='1H')
+        dates2 = pd.date_range(start='2023-01-02', end='2023-01-11', freq='1H')
+        
+        df1 = pd.DataFrame({'close': range(len(dates1))}, index=dates1)
+        df2 = pd.DataFrame({'close': range(len(dates2))}, index=dates2)
+        
+        data_dict = {'1H': df1, '4H': df2}
+        aligned_data = timeframe_manager.align_timeframes(data_dict)
+        
+        # Check that both dataframes have the same date range
+        assert aligned_data['1H'].index.min() == aligned_data['4H'].index.min()
+        assert aligned_data['1H'].index.max() == aligned_data['4H'].index.max()
+    
+    def test_resample_to_higher_timeframe(self, timeframe_manager, sample_5m_data):
+        """Test resampling to higher timeframe"""
+        resampled_1h = timeframe_manager.resample_to_higher_timeframe(
+            sample_5m_data, '5M', '1H'
+        )
+        
+        # Check that we have fewer rows
+        assert len(resampled_1h) < len(sample_5m_data)
+        
+        # Check that high is max and low is min
+        first_hour_data = sample_5m_data.iloc[:12]  # First 12 5-minute bars
+        assert resampled_1h.iloc[0]['high'] == first_hour_data['high'].max()
+        assert resampled_1h.iloc[0]['low'] == first_hour_data['low'].min()
+    
+    def test_resample_invalid_conversion(self, timeframe_manager, sample_1h_data):
+        """Test that resampling from higher to lower timeframe raises error"""
+        with pytest.raises(ValueError):
+            timeframe_manager.resample_to_higher_timeframe(
+                sample_1h_data, '1H', '5M'
+            )
+    
+    def test_create_mtf_dataset(self, timeframe_manager, sample_5m_data):
+        """Test creating multi-timeframe dataset"""
+        mtf_data = timeframe_manager.create_mtf_dataset(
+            sample_5m_data, '5M', ['15M', '1H']
+        )
+        
+        assert '5M' in mtf_data
+        assert '15M' in mtf_data
+        assert '1H' in mtf_data
+        
+        # Check that higher timeframes have fewer rows
+        assert len(mtf_data['15M']) < len(mtf_data['5M'])
+        assert len(mtf_data['1H']) < len(mtf_data['15M'])
+    
+    def test_get_session_boundaries(self, timeframe_manager):
+        """Test getting session boundaries"""
+        date = pd.Timestamp('2023-01-01')
+        
+        london_start, london_end = timeframe_manager.get_session_boundaries(date, 'london')
+        assert london_start.hour == 7
+        assert london_end.hour == 16
+        
+        ny_start, ny_end = timeframe_manager.get_session_boundaries(date, 'new_york')
+        assert ny_start.hour == 12
+        assert ny_end.hour == 21
+    
+    def test_get_killzone_times(self, timeframe_manager):
+        """Test getting kill zone times"""
+        date = pd.Timestamp('2023-01-01')
+        killzones = timeframe_manager.get_killzone_times(date)
+        
+        assert 'london_open' in killzones
+        assert 'new_york_open' in killzones
+        
+        london_open_start, london_open_end = killzones['london_open']
+        assert london_open_start.hour == 7
+        assert london_open_end.hour == 9
+    
+    def test_infer_timeframe(self, timeframe_manager):
+        """Test inferring timeframe from data"""
+        # Create 15-minute data
+        dates = pd.date_range(start='2023-01-01', periods=10, freq='15T')
+        df = pd.DataFrame({'close': range(10)}, index=dates)
+        
+        inferred_tf = timeframe_manager._infer_timeframe(df)
+        assert inferred_tf == '15M'
