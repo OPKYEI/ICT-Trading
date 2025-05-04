@@ -19,7 +19,7 @@ class TestTimeFeatures:
         dates = pd.date_range(
             start='2023-01-02 00:00:00',  # Monday
             end='2023-01-08 23:00:00',    # Sunday
-            freq='1H',
+            freq='1h',
             tz='UTC'
         )
         data = pd.DataFrame({

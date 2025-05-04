@@ -1,0 +1,518 @@
+# src/features/feature_engineering.py
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass
+import logging
+from datetime import datetime
+
+from .market_structure import MarketStructureAnalyzer
+from .pd_arrays import PriceDeliveryArrays
+from .liquidity import LiquidityAnalyzer
+from .time_features import TimeFeatures
+from .patterns import PatternRecognition
+from .intermarket import IntermarketAnalysis
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class FeatureSet:
+    """Container for engineered features"""
+    features: pd.DataFrame
+    metadata: Dict[str, Any]
+    feature_names: List[str]
+    feature_importance: Optional[Dict[str, float]] = None
+
+class ICTFeatureEngineer:
+    """
+    Combines all ICT features into a comprehensive feature set for ML models.
+    
+    Features include:
+    - Market structure (HH/HL/LH/LL, trends, MSS)
+    - PD Arrays (order blocks, FVGs, breakers)
+    - Liquidity (levels, pools, stop runs)
+    - Time-based features (sessions, kill zones)
+    - Pattern recognition (OTE, turtle soup)
+    - Intermarket analysis (correlations, divergences)
+    """
+    
+    def __init__(self, 
+                 lookback_periods: List[int] = [5, 10, 20, 50],
+                 feature_selection_threshold: float = 0.01):
+        """
+        Args:
+            lookback_periods: Periods for calculating moving features
+            feature_selection_threshold: Minimum importance for feature selection
+        """
+        self.lookback_periods = lookback_periods
+        self.feature_selection_threshold = feature_selection_threshold
+        
+        # Initialize analyzers
+        self.market_structure = MarketStructureAnalyzer()
+        self.pd_arrays = PriceDeliveryArrays()
+        self.liquidity = LiquidityAnalyzer()
+        self.time_features = TimeFeatures()
+        self.patterns = PatternRecognition()
+        self.intermarket = IntermarketAnalysis()
+        
+        # Feature configuration
+        self.feature_config = {
+            'market_structure': True,
+            'pd_arrays': True,
+            'liquidity': True,
+            'time_features': True,
+            'patterns': True,
+            'intermarket': True,
+            'technical_indicators': True
+        }
+    
+    def engineer_features(self, 
+                         data: pd.DataFrame,
+                         symbol: str,
+                         additional_data: Optional[Dict[str, pd.DataFrame]] = None) -> FeatureSet:
+        """
+        Generate comprehensive feature set from raw OHLCV data.
+        
+        Args:
+            data: OHLCV DataFrame for primary symbol
+            symbol: Symbol name (e.g., 'EURUSD')
+            additional_data: Additional symbol data for intermarket analysis
+            
+        Returns:
+            FeatureSet object containing engineered features
+        """
+        logger.info(f"Engineering features for {symbol}")
+        
+        # Initialize feature DataFrame
+        features = pd.DataFrame(index=data.index)
+        feature_metadata = {
+            'symbol': symbol,
+            'start_date': data.index[0],
+            'end_date': data.index[-1],
+            'total_bars': len(data)
+        }
+        
+        # 1. Market Structure Features
+        if self.feature_config['market_structure']:
+            features = self._add_market_structure_features(data, features)
+        
+        # 2. Time Features (needed for other features)
+        if self.feature_config['time_features']:
+            features = self._add_time_features(data, features)
+        
+        # 3. PD Array Features
+        if self.feature_config['pd_arrays']:
+            features = self._add_pd_array_features(data, features)
+        
+        # 4. Liquidity Features
+        if self.feature_config['liquidity']:
+            features = self._add_liquidity_features(data, features)
+        
+        # 5. Pattern Features
+        if self.feature_config['patterns']:
+            features = self._add_pattern_features(data, features)
+        
+        # 6. Intermarket Features
+        if self.feature_config['intermarket'] and additional_data:
+            features = self._add_intermarket_features(data, features, additional_data)
+        
+        # 7. Technical Indicators
+        if self.feature_config['technical_indicators']:
+            features = self._add_technical_indicators(data, features)
+        
+        # 8. Target Variables
+        features = self._add_target_variables(data, features)
+        
+        # Clean up features
+        features = self._cleanup_features(features)
+        
+        return FeatureSet(
+            features=features,
+            metadata=feature_metadata,
+            feature_names=list(features.columns)
+        )
+    
+    def _add_market_structure_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add market structure features"""
+        # Identify swing points
+        swing_points = self.market_structure.identify_swing_points(data)
+        
+        # Initialize features
+        features['swing_high'] = 0
+        features['swing_low'] = 0
+        features['swing_high_price'] = np.nan
+        features['swing_low_price'] = np.nan
+        
+        # Mark swing points
+        for sp in swing_points:
+            if sp.type == 'high':
+                features.loc[sp.index, 'swing_high'] = 1
+                features.loc[sp.index, 'swing_high_price'] = sp.price
+            else:
+                features.loc[sp.index, 'swing_low'] = 1
+                features.loc[sp.index, 'swing_low_price'] = sp.price
+        
+        # Forward fill swing prices
+        features['last_swing_high'] = features['swing_high_price'].fillna(method='ffill')
+        features['last_swing_low'] = features['swing_low_price'].fillna(method='ffill')
+        
+        # Distance from swings
+        features['distance_from_swing_high'] = (data['close'] - features['last_swing_high']) / features['last_swing_high']
+        features['distance_from_swing_low'] = (data['close'] - features['last_swing_low']) / features['last_swing_low']
+        
+        # Market structure classification
+        structure = self.market_structure.classify_market_structure(swing_points)
+        features['market_trend'] = structure.trend
+        features['market_trend_encoded'] = features['market_trend'].map({
+            'bullish': 1, 'bearish': -1, 'ranging': 0
+        })
+        
+        # Structure strength
+        if structure.trend == 'bullish' and structure.last_hh and structure.last_hl:
+            features['structure_strength'] = abs(structure.last_hh.price - structure.last_hl.price) / structure.last_hl.price
+        elif structure.trend == 'bearish' and structure.last_lh and structure.last_ll:
+            features['structure_strength'] = abs(structure.last_lh.price - structure.last_ll.price) / structure.last_lh.price
+        else:
+            features['structure_strength'] = 0
+        
+        # MSS detection
+        mss_result = self.market_structure.detect_market_structure_shift(data, swing_points, structure)
+        features['mss_detected'] = 0
+        features['bos_detected'] = 0
+        
+        if mss_result['mss_detected'] and mss_result['shift_index'] in features.index:
+            features.loc[mss_result['shift_index'], 'mss_detected'] = 1
+        if mss_result['bos_detected'] and mss_result['shift_index'] in features.index:
+            features.loc[mss_result['shift_index'], 'bos_detected'] = 1
+        
+        return features
+    
+    def _add_time_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add time-based features without timezone conversion."""
+        idx = data.index
+        # Basic time fields
+        features['hour'] = idx.hour
+        features['day_of_week'] = idx.dayofweek
+
+        # Define sessions (all in UTC hours on a naive index)
+        features['in_london_session']    = features['hour'].between(7, 15)   # 07:00–16:00
+        features['in_new_york_session']  = features['hour'].between(12, 20)  # 12:00–21:00
+        features['in_asian_session']     = (features['hour'] >= 23) | (features['hour'] < 8)
+        features['is_optimal_time']      = False  # placeholder flag for kill-zones or similar
+
+        # Price-based time features
+        features['hour_high']  = data.groupby(idx.hour)['high'].transform('max')
+        features['hour_low']   = data.groupby(idx.hour)['low'].transform('min')
+        features['hour_range'] = features['hour_high'] - features['hour_low']
+
+        # Session-range placeholders
+        for session in ('london', 'ny', 'asia'):
+            features[f'{session}_range'] = 0.0
+
+        # Compute per-day session ranges
+        for session, col in [
+            ('london', 'in_london_session'),
+            ('ny',     'in_new_york_session'),
+            ('asia',   'in_asian_session')
+        ]:
+            mask = features[col]
+            if mask.any():
+                sess = data.loc[mask]
+                dr = sess.groupby(sess.index.date).agg({'high':'max','low':'min'})
+                dr['rng'] = dr['high'] - dr['low']
+                for date, rng in dr['rng'].items():
+                    date_mask = features.index.date == date
+                    features.loc[date_mask, f'{session}_range'] = rng
+
+        return features
+
+
+
+    
+    def _add_pd_array_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add PD Array features"""
+        # Get swing points for PD array analysis
+        swing_points = self.market_structure.identify_swing_points(data)
+        
+        # Order blocks
+        order_blocks = self.pd_arrays.identify_order_blocks(data, swing_points)
+        features['near_bullish_ob'] = 0
+        features['near_bearish_ob'] = 0
+        features['ob_distance'] = np.nan
+        
+        for i, row in data.iterrows():
+            for ob in order_blocks:
+                if ob.type == 'bullish' and row['low'] <= ob.high and row['low'] >= ob.low:
+                    features.loc[i, 'near_bullish_ob'] = 1
+                    features.loc[i, 'ob_distance'] = (row['close'] - ob.mitigation_level) / ob.mitigation_level
+                elif ob.type == 'bearish' and row['high'] >= ob.low and row['high'] <= ob.high:
+                    features.loc[i, 'near_bearish_ob'] = 1
+                    features.loc[i, 'ob_distance'] = (row['close'] - ob.mitigation_level) / ob.mitigation_level
+        
+        # Fair Value Gaps
+        fvgs = self.pd_arrays.identify_fvg(data)
+        features['in_fvg'] = 0
+        features['fvg_type'] = 'none'
+        
+        for i, row in data.iterrows():
+            for fvg in fvgs:
+                if not fvg.filled and row['low'] <= fvg.high and row['high'] >= fvg.low:
+                    features.loc[i, 'in_fvg'] = 1
+                    features.loc[i, 'fvg_type'] = fvg.type
+        
+        # Breaker blocks
+        breaker_blocks = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points)
+        features['near_breaker'] = 0
+        
+        for i, row in data.iterrows():
+            for breaker in breaker_blocks:
+                if row['low'] <= breaker.high and row['high'] >= breaker.low:
+                    features.loc[i, 'near_breaker'] = 1
+        
+        return features
+    
+    def _add_liquidity_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add liquidity features"""
+        # Get swing points for liquidity analysis
+        swing_points = self.market_structure.identify_swing_points(data)
+        
+        # Liquidity levels
+        liquidity_levels = self.liquidity.identify_liquidity_levels(data, swing_points)
+        features['near_bsl'] = 0
+        features['near_ssl'] = 0
+        features['liquidity_distance'] = np.nan
+        
+        for i, row in data.iterrows():
+            for level in liquidity_levels:
+                distance = abs(row['close'] - level.price) / level.price
+                if distance < 0.001:  # Within 0.1% of liquidity level
+                    if level.type == 'BSL':
+                        features.loc[i, 'near_bsl'] = 1
+                    else:
+                        features.loc[i, 'near_ssl'] = 1
+                    features.loc[i, 'liquidity_distance'] = distance
+        
+        # Stop runs
+        stop_runs = self.liquidity.identify_stop_runs(data, liquidity_levels)
+        features['stop_run'] = 0
+        features['stop_run_direction'] = 'none'
+        
+        for run in stop_runs:
+            features.loc[run.index, 'stop_run'] = 1
+            features.loc[run.index, 'stop_run_direction'] = run.direction
+        
+        # Liquidity pools
+        pools = self.liquidity.identify_liquidity_pools(liquidity_levels)
+        features['near_liquidity_pool'] = 0
+        
+        for i, row in data.iterrows():
+            for pool in pools:
+                if row['high'] >= pool.low and row['low'] <= pool.high:
+                    features.loc[i, 'near_liquidity_pool'] = 1
+        
+        return features
+    
+    def _add_pattern_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add pattern recognition features"""
+        # Get required data for pattern recognition
+        swing_points = self.market_structure.identify_swing_points(data)
+        fvgs = self.pd_arrays.identify_fvg(data)
+        order_blocks = self.pd_arrays.identify_order_blocks(data, swing_points)
+        breaker_blocks = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points)
+        liquidity_levels = self.liquidity.identify_liquidity_levels(data, swing_points)
+        
+        # Market structure for pattern context
+        structure = self.market_structure.classify_market_structure(swing_points)
+        market_structure = {'trend': structure.trend}
+        
+        # Find all patterns
+        patterns = self.patterns.find_all_patterns(
+            data, swing_points, fvgs, order_blocks, 
+            breaker_blocks, liquidity_levels, market_structure
+        )
+        
+        # Initialize pattern features
+        features['pattern_detected'] = 0
+        features['pattern_type'] = 'none'
+        features['pattern_direction'] = 'none'
+        features['pattern_confidence'] = 0.0
+        
+        # Mark patterns
+        for pattern_type, pattern_list in patterns.items():
+            for pattern in pattern_list:
+                idx = data.index[pattern.end_idx]
+                features.loc[idx, 'pattern_detected'] = 1
+                features.loc[idx, 'pattern_type'] = pattern.pattern_type
+                features.loc[idx, 'pattern_direction'] = pattern.direction
+                features.loc[idx, 'pattern_confidence'] = pattern.confidence
+        
+        return features
+    
+    def _add_intermarket_features(self, data: pd.DataFrame, features: pd.DataFrame, 
+                                additional_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Add intermarket analysis features"""
+        # Dollar correlation (if USD pairs)
+        if 'EURUSD' in additional_data or 'DXY' in additional_data:
+            dxy_data = additional_data.get('DXY', additional_data.get('EURUSD'))
+            if dxy_data is not None:
+                corr_result = self.intermarket.calculate_correlation(
+                    data['close'], 
+                    dxy_data['close'],
+                    window=20
+                )
+                features['dollar_correlation'] = corr_result.correlation_coefficient
+                features['dollar_corr_direction'] = corr_result.direction
+        
+        # Currency strength
+        if len(additional_data) >= 3:
+            strength_scores = self.intermarket.calculate_currency_strength(additional_data)
+            
+            # Extract base and quote currencies from symbol
+            if len(data.name) >= 6:
+                base_currency = data.name[:3]
+                quote_currency = data.name[3:6]
+                
+                if base_currency in strength_scores:
+                    features['base_currency_strength'] = strength_scores[base_currency].score
+                    features['base_currency_rank'] = strength_scores[base_currency].rank
+                
+                if quote_currency in strength_scores:
+                    features['quote_currency_strength'] = strength_scores[quote_currency].score
+                    features['quote_currency_rank'] = strength_scores[quote_currency].rank
+        
+        # SMT divergences
+        for symbol, other_data in additional_data.items():
+            divergences = self.intermarket.detect_smt_divergence(data, other_data)
+            features[f'smt_divergence_{symbol}'] = 0
+            
+            for div in divergences:
+                features.loc[data.index[div.end_idx], f'smt_divergence_{symbol}'] = 1
+        
+        return features
+    
+    def _add_technical_indicators(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add technical indicators"""
+        # ATR for volatility
+        features['atr'] = self.patterns.calculate_atr(data)
+        features['atr_normalized'] = features['atr'] / data['close']
+        
+        # Moving averages
+        for period in self.lookback_periods:
+            features[f'sma_{period}'] = data['close'].rolling(window=period).mean()
+            features[f'distance_from_sma_{period}'] = (data['close'] - features[f'sma_{period}']) / features[f'sma_{period}']
+        
+        # RSI
+        delta = data['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        features['rsi'] = 100 - (100 / (1 + rs))
+        
+        # Bollinger Bands
+        features['bb_middle'] = data['close'].rolling(window=20).mean()
+        features['bb_std'] = data['close'].rolling(window=20).std()
+        features['bb_upper'] = features['bb_middle'] + (features['bb_std'] * 2)
+        features['bb_lower'] = features['bb_middle'] - (features['bb_std'] * 2)
+        features['bb_position'] = (data['close'] - features['bb_lower']) / (features['bb_upper'] - features['bb_lower'])
+        
+        # Volume features
+        features['volume_sma'] = data['volume'].rolling(window=20).mean()
+        features['volume_ratio'] = data['volume'] / features['volume_sma']
+        
+        return features
+    
+    def _add_target_variables(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
+        """Add target variables for supervised learning"""
+        # Future returns
+        for period in [1, 5, 10, 20]:
+            features[f'future_return_{period}'] = data['close'].pct_change(period).shift(-period)
+            features[f'future_direction_{period}'] = (features[f'future_return_{period}'] > 0).astype(int)
+        
+        # Future high/low
+        for period in [5, 10, 20]:
+            features[f'future_high_{period}'] = data['high'].rolling(window=period).max().shift(-period)
+            features[f'future_low_{period}'] = data['low'].rolling(window=period).min().shift(-period)
+            
+            # Maximum favorable/adverse excursion
+            features[f'mfe_{period}'] = (features[f'future_high_{period}'] - data['close']) / data['close']
+            features[f'mae_{period}'] = (data['close'] - features[f'future_low_{period}']) / data['close']
+        
+        return features
+    
+    def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
+        """Clean up features: handle NaN, encode categoricals, scale if needed"""
+        # Handle categorical variables
+        categorical_columns = features.select_dtypes(include=['object']).columns
+        for col in categorical_columns:
+            features[f'{col}_encoded'] = pd.factorize(features[col])[0]
+        
+        # Drop original categorical columns
+        features = features.drop(columns=categorical_columns)
+        
+        # Handle missing values
+        features = features.fillna(method='ffill').fillna(method='bfill')
+        
+        # Drop rows with remaining NaNs (typically at the beginning/end)
+        features = features.dropna()
+        
+        # Remove infinite values
+        features = features.replace([np.inf, -np.inf], np.nan).dropna()
+        
+        return features
+    
+    def select_features(self, features: pd.DataFrame, target_column: str, 
+                       method: str = 'importance') -> List[str]:
+        """
+        Select most important features.
+        
+        Args:
+            features: DataFrame with all features
+            target_column: Target variable for feature importance
+            method: Selection method ('importance', 'correlation', 'both')
+            
+        Returns:
+            List of selected feature names
+        """
+        if method == 'importance' or method == 'both':
+            # Use Random Forest for feature importance
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.preprocessing import StandardScaler
+            
+            # Prepare data
+            X = features.drop(columns=[col for col in features.columns if 'future_' in col])
+            y = features[target_column]
+            
+            # Remove any remaining NaN
+            mask = ~(X.isna().any(axis=1) | y.isna())
+            X = X[mask]
+            y = y[mask]
+            
+            # Scale features
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            
+            # Train Random Forest
+            rf = RandomForestClassifier(n_estimators=100, random_state=42)
+            rf.fit(X_scaled, y)
+            
+            # Get feature importance
+            importance = pd.Series(rf.feature_importances_, index=X.columns)
+            importance = importance.sort_values(ascending=False)
+            
+            # Select features above threshold
+            selected_features = list(importance[importance > self.feature_selection_threshold].index)
+        
+        if method == 'correlation' or method == 'both':
+            # Remove highly correlated features
+            corr_matrix = features.corr().abs()
+            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+            
+            # Find features with correlation > 0.95
+            to_drop = [column for column in upper.columns if any(upper[column] > 0.95)]
+            
+            if method == 'both':
+                selected_features = [f for f in selected_features if f not in to_drop]
+            else:
+                selected_features = [f for f in features.columns if f not in to_drop and 'future_' not in f]
+        
+        return selected_features

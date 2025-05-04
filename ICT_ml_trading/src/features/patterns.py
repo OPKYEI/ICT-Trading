@@ -328,7 +328,7 @@ class PatternRecognition:
                     # Price returning to bullish breaker from above
                     if bar['low'] <= breaker.high and bar['low'] >= breaker.low:
                         entry_price = bar['close']
-                        stop_loss = breaker.low - atr[i] * 0.5
+                        stop_loss = breaker.low - atr.iloc[i] * 0.5
                         
                         # Find recent high for targets
                         recent_high = None
@@ -360,7 +360,7 @@ class PatternRecognition:
                     # Price returning to bearish breaker from below
                     if bar['high'] >= breaker.low and bar['high'] <= breaker.high:
                         entry_price = bar['close']
-                        stop_loss = breaker.high + atr[i] * 0.5
+                        stop_loss = breaker.high + atr.iloc[i] * 0.5
                         
                         # Find recent low for targets
                         recent_low = None
