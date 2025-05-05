@@ -99,3 +99,8 @@ class ModelBuilder:
             )
         ))
         return Pipeline(steps)
+# Expose module-level builder functions for convenience
+build_logistic_regression = ModelBuilder.build_logistic_regression
+build_random_forest       = ModelBuilder.build_random_forest
+build_gradient_boosting    = ModelBuilder.build_gradient_boosting
+build_svm                  = ModelBuilder.build_svm

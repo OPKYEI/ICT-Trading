@@ -39,6 +39,13 @@ class BreakerBlock:
     origin_type: str  # original 'support' or 'resistance'
     broken_idx: int  # index where structure was broken
 
+# src/features/pd_arrays.py
+
+import pandas as pd
+from typing import List
+from .market_structure import SwingPoint
+from .types import OrderBlock  # wherever your OrderBlock dataclass lives
+
 class PriceDeliveryArrays:
     """
     Identifies ICT Price Delivery Arrays including:
@@ -48,102 +55,95 @@ class PriceDeliveryArrays:
     - Mitigation Blocks
     - Rejection Blocks
     """
-    
+
     def __init__(self, min_order_block_strength: float = 0.001):
         """
         Args:
             min_order_block_strength: Minimum price movement % to qualify as order block
         """
         self.min_ob_strength = min_order_block_strength
-    
-    def identify_order_blocks(self, df: pd.DataFrame, swing_points: List) -> List[OrderBlock]:
+
+    def identify_order_blocks(self, df: pd.DataFrame, swing_points: List[SwingPoint]) -> List[OrderBlock]:
         """
         Identify order blocks based on ICT criteria:
         - Last down-closed candle before up move (bullish OB)
         - Last up-closed candle before down move (bearish OB)
-        
+
         Args:
             df: DataFrame with OHLCV data
-            swing_points: List of swing highs and lows
-            
+            swing_points: List of SwingPoint(index=Timestamp, type='high'/'low', price=float)
+
         Returns:
             List of OrderBlock objects
         """
-        order_blocks = []
-        
-        for i in range(1, len(swing_points)):
-            current_swing = swing_points[i]
-            prev_swing = swing_points[i-1]
-            
-            # Find the candles between swings
-            prev_idx = df.index.get_loc(prev_swing.index)
-            curr_idx = df.index.get_loc(current_swing.index)
-            
-            # Ensure we have enough candles to analyze
-            if curr_idx - prev_idx < 2:
+        order_blocks: List[OrderBlock] = []
+
+        # Pre-compute a mapping from timestamp -> integer loc
+        idx_map = {ts: i for i, ts in enumerate(df.index)}
+
+        for prev_sp, curr_sp in zip(swing_points[:-1], swing_points[1:]):
+            # both swings must exist in our index
+            if prev_sp.index not in idx_map or curr_sp.index not in idx_map:
                 continue
-            
-            segment = df.iloc[prev_idx:curr_idx+1]
-            
-            # Bullish Order Block: Last down-closed candle before up move
-            if prev_swing.type == 'low' and current_swing.type == 'high':
-                # Find last down-closed candle before the swing high
-                down_candles = []
-                for j in range(len(segment) - 1, -1, -1):
-                    candle = segment.iloc[j]
-                    if candle['close'] < candle['open']:
-                        down_candles.append((j, candle))
-                
-                if down_candles:
-                    # Get the last down-closed candle
-                    idx, ob_candle = down_candles[0]
-                    ob_global_idx = prev_idx + idx
-                    
-                    # Verify strength of the move
-                    move_strength = (current_swing.price - prev_swing.price) / prev_swing.price
-                    if move_strength >= self.min_ob_strength:
-                        order_blocks.append(OrderBlock(
-                            start_idx=ob_global_idx,
-                            end_idx=ob_global_idx,
-                            type='bullish',
-                            high=ob_candle['high'],
-                            low=ob_candle['low'],
-                            open=ob_candle['open'],
-                            close=ob_candle['close'],
-                            mitigation_level=(ob_candle['open'] + ob_candle['close']) / 2,
-                            origin_swing='low'
-                        ))
-            
-            # Bearish Order Block: Last up-closed candle before down move
-            elif prev_swing.type == 'high' and current_swing.type == 'low':
-                # Find last up-closed candle before the swing low
-                up_candles = []
-                for j in range(len(segment) - 1, -1, -1):
-                    candle = segment.iloc[j]
-                    if candle['close'] > candle['open']:
-                        up_candles.append((j, candle))
-                
-                if up_candles:
-                    # Get the last up-closed candle
-                    idx, ob_candle = up_candles[0]
-                    ob_global_idx = prev_idx + idx
-                    
-                    # Verify strength of the move
-                    move_strength = (prev_swing.price - current_swing.price) / prev_swing.price
-                    if move_strength >= self.min_ob_strength:
-                        order_blocks.append(OrderBlock(
-                            start_idx=ob_global_idx,
-                            end_idx=ob_global_idx,
-                            type='bearish',
-                            high=ob_candle['high'],
-                            low=ob_candle['low'],
-                            open=ob_candle['open'],
-                            close=ob_candle['close'],
-                            mitigation_level=(ob_candle['open'] + ob_candle['close']) / 2,
-                            origin_swing='high'
-                        ))
-        
+
+            prev_i = idx_map[prev_sp.index]
+            curr_i = idx_map[curr_sp.index]
+
+            # need at least 2 candles in between
+            if curr_i - prev_i < 2:
+                continue
+
+            segment = df.iloc[prev_i : curr_i + 1]
+
+            # bullish OB: low → high
+            if prev_sp.type == "low" and curr_sp.type == "high":
+                # scan backwards for last red candle
+                reds = segment.iloc[:-1][segment["close"] < segment["open"]]
+                if reds.empty:
+                    continue
+
+                ob_loc = reds.index[-1]
+                ob_row = segment.loc[ob_loc]
+                move_strength = (curr_sp.price - prev_sp.price) / prev_sp.price
+
+                if move_strength >= self.min_ob_strength:
+                    order_blocks.append(OrderBlock(
+                        start_idx=ob_loc, end_idx=ob_loc,
+                        type="bullish",
+                        high=ob_row["high"],
+                        low=ob_row["low"],
+                        open=ob_row["open"],
+                        close=ob_row["close"],
+                        mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
+                        origin_swing="low"
+                    ))
+
+            # bearish OB: high → low
+            elif prev_sp.type == "high" and curr_sp.type == "low":
+                greens = segment.iloc[:-1][segment["close"] > segment["open"]]
+                if greens.empty:
+                    continue
+
+                ob_loc = greens.index[-1]
+                ob_row = segment.loc[ob_loc]
+                move_strength = (prev_sp.price - curr_sp.price) / prev_sp.price
+
+                if move_strength >= self.min_ob_strength:
+                    order_blocks.append(OrderBlock(
+                        start_idx=ob_loc, end_idx=ob_loc,
+                        type="bearish",
+                        high=ob_row["high"],
+                        low=ob_row["low"],
+                        open=ob_row["open"],
+                        close=ob_row["close"],
+                        mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
+                        origin_swing="high"
+                    ))
+
         return order_blocks
+
+    # ... the rest of your class (FVG, breaker, etc.) remains unchanged ...
+
     
     def identify_fvg(self, df: pd.DataFrame) -> List[FairValueGap]:
         """
