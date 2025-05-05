@@ -67,23 +67,11 @@ class ICTFeatureEngineer:
         }
     
     def engineer_features(self, 
-                         data: pd.DataFrame,
-                         symbol: str,
-                         additional_data: Optional[Dict[str, pd.DataFrame]] = None) -> FeatureSet:
-        """
-        Generate comprehensive feature set from raw OHLCV data.
-        
-        Args:
-            data: OHLCV DataFrame for primary symbol
-            symbol: Symbol name (e.g., 'EURUSD')
-            additional_data: Additional symbol data for intermarket analysis
-            
-        Returns:
-            FeatureSet object containing engineered features
-        """
-        logger.info(f"Engineering features for {symbol}")
-        
-        # Initialize feature DataFrame
+                      data: pd.DataFrame,
+                      symbol: str,
+                      additional_data: Optional[Dict[str, pd.DataFrame]] = None) -> FeatureSet:
+        print(f"🔧 Engineering features for {symbol}")
+
         features = pd.DataFrame(index=data.index)
         feature_metadata = {
             'symbol': symbol,
@@ -91,46 +79,49 @@ class ICTFeatureEngineer:
             'end_date': data.index[-1],
             'total_bars': len(data)
         }
-        
-        # 1. Market Structure Features
+
         if self.feature_config['market_structure']:
+            print("→ Adding market structure features")
             features = self._add_market_structure_features(data, features)
-        
-        # 2. Time Features (needed for other features)
+
         if self.feature_config['time_features']:
+            print("→ Adding time features")
             features = self._add_time_features(data, features)
-        
-        # 3. PD Array Features
+
         if self.feature_config['pd_arrays']:
+            print("→ Adding PD array features")
             features = self._add_pd_array_features(data, features)
-        
-        # 4. Liquidity Features
+
         if self.feature_config['liquidity']:
+            print("→ Adding liquidity features")
             features = self._add_liquidity_features(data, features)
-        
-        # 5. Pattern Features
+
         if self.feature_config['patterns']:
+            print("→ Adding pattern features")
             features = self._add_pattern_features(data, features)
-        
-        # 6. Intermarket Features
+
         if self.feature_config['intermarket'] and additional_data:
+            print("→ Adding intermarket features")
             features = self._add_intermarket_features(data, features, additional_data)
-        
-        # 7. Technical Indicators
+
         if self.feature_config['technical_indicators']:
+            print("→ Adding technical indicators")
             features = self._add_technical_indicators(data, features)
-        
-        # 8. Target Variables
+
+        print("→ Adding target variable")
         features = self._add_target_variables(data, features)
-        
-        # Clean up features
+
+        print("→ Cleaning up features")
         features = self._cleanup_features(features)
-        
+
+        print("✅ Feature engineering complete")
+
         return FeatureSet(
             features=features,
             metadata=feature_metadata,
             feature_names=list(features.columns)
         )
+
     
     def _add_market_structure_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
         """Add market structure features"""
@@ -153,8 +144,9 @@ class ICTFeatureEngineer:
                 features.loc[sp.index, 'swing_low_price'] = sp.price
         
         # Forward fill swing prices
-        features['last_swing_high'] = features['swing_high_price'].fillna(method='ffill')
-        features['last_swing_low'] = features['swing_low_price'].fillna(method='ffill')
+        features['last_swing_high'] = features['swing_high_price'].ffill()
+        features['last_swing_low'] = features['swing_low_price'].ffill()
+
         
         # Distance from swings
         features['distance_from_swing_high'] = (data['close'] - features['last_swing_high']) / features['last_swing_high']
@@ -230,46 +222,83 @@ class ICTFeatureEngineer:
 
     
     def _add_pd_array_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
-        """Add PD Array features"""
-        # Get swing points for PD array analysis
         swing_points = self.market_structure.identify_swing_points(data)
-        
-        # Order blocks
+
         order_blocks = self.pd_arrays.identify_order_blocks(data, swing_points)
         features['near_bullish_ob'] = 0
         features['near_bearish_ob'] = 0
-        features['ob_distance'] = np.nan
-        
-        for i, row in data.iterrows():
-            for ob in order_blocks:
-                if ob.type == 'bullish' and row['low'] <= ob.high and row['low'] >= ob.low:
-                    features.loc[i, 'near_bullish_ob'] = 1
-                    features.loc[i, 'ob_distance'] = (row['close'] - ob.mitigation_level) / ob.mitigation_level
-                elif ob.type == 'bearish' and row['high'] >= ob.low and row['high'] <= ob.high:
-                    features.loc[i, 'near_bearish_ob'] = 1
-                    features.loc[i, 'ob_distance'] = (row['close'] - ob.mitigation_level) / ob.mitigation_level
-        
-        # Fair Value Gaps
-        fvgs = self.pd_arrays.identify_fvg(data)
-        features['in_fvg'] = 0
-        features['fvg_type'] = 'none'
-        
-        for i, row in data.iterrows():
-            for fvg in fvgs:
-                if not fvg.filled and row['low'] <= fvg.high and row['high'] >= fvg.low:
-                    features.loc[i, 'in_fvg'] = 1
-                    features.loc[i, 'fvg_type'] = fvg.type
-        
-        # Breaker blocks
-        breaker_blocks = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points)
-        features['near_breaker'] = 0
-        
-        for i, row in data.iterrows():
-            for breaker in breaker_blocks:
-                if row['low'] <= breaker.high and row['high'] >= breaker.low:
-                    features.loc[i, 'near_breaker'] = 1
-        
+
+        for ob in order_blocks:
+            try:
+                # Validate what ob.start_idx is
+                if isinstance(ob.start_idx, (pd.Timestamp, str)):
+                    ob_idx = data.index.get_loc(ob.start_idx)
+                elif isinstance(ob.start_idx, (int, np.integer)):
+                    ob_idx = ob.start_idx
+                else:
+                    print(f"Invalid ob.start_idx: {ob.start_idx} of type {type(ob.start_idx)}")
+                    continue
+
+                # Define window safely
+                end_idx = min(ob_idx + 10, len(data))
+
+                for i in range(ob_idx + 1, end_idx):
+                    row = data.iloc[i]
+                    if ob.type == 'bullish':
+                        if row['low'] <= ob.high and row['low'] >= ob.low:
+                            features.at[features.index[i], 'near_bullish_ob'] = 1
+                    elif ob.type == 'bearish':
+                        if row['high'] >= ob.low and row['high'] <= ob.high:
+                            features.at[features.index[i], 'near_bearish_ob'] = 1
+            except Exception as e:
+                print(f"[ERROR: OB loop] {e} for ob.start_idx={ob.start_idx}")
+                continue
+
         return features
+
+
+
+        # --- Fair Value Gaps ---
+        fvgs = self.pd_arrays.identify_fvg(data)
+        features['fvg_bullish'] = 0
+        features['fvg_bearish'] = 0
+        for fvg in fvgs:
+            col = 'fvg_bullish' if fvg.type == 'bullish' else 'fvg_bearish'
+            for i in range(fvg.start_idx, fvg.end_idx + 1):
+                if i < len(features):
+                    features.iloc[i, features.columns.get_loc(col)] = 1
+
+        # --- Breaker Blocks ---
+        breakers = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points)
+        features['breaker_bullish'] = 0
+        features['breaker_bearish'] = 0
+        for bb in breakers:
+            col = 'breaker_bullish' if bb.type == 'bullish' else 'breaker_bearish'
+            if bb.start_idx < len(features):
+                features.iloc[bb.start_idx, features.columns.get_loc(col)] = 1
+
+        # --- Mitigation Blocks ---
+        mitigations = self.pd_arrays.identify_mitigation_blocks(data, order_blocks)
+        features['mitigation_bullish'] = 0
+        features['mitigation_bearish'] = 0
+        for m in mitigations:
+            col = 'mitigation_bullish' if m['type'] == 'bullish' else 'mitigation_bearish'
+            idx = m['mitigation_idx']
+            if idx < len(features):
+                features.iloc[idx, features.columns.get_loc(col)] = 1
+
+        # --- Rejection Blocks ---
+        rejections = self.pd_arrays.identify_rejection_blocks(data, swing_points)
+        features['rejection_bullish'] = 0
+        features['rejection_bearish'] = 0
+        for r in rejections:
+            col = 'rejection_bullish' if r['type'] == 'bullish' else 'rejection_bearish'
+            idx = r['index']
+            if idx < len(features):
+                features.iloc[idx, features.columns.get_loc(col)] = 1
+
+        return features
+
     
     def _add_liquidity_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
         """Add liquidity features"""

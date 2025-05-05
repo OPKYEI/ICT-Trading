@@ -6,19 +6,17 @@ from dataclasses import dataclass
 
 @dataclass
 class LiquidityLevel:
-    """Represents a liquidity level (high or low)"""
     index: pd.Timestamp
     price: float
-    type: str  # 'BSL' (Buy-side) or 'SSL' (Sell-side)
-    strength: int  # Number of touches/tests
+    type: str  # 'BSL' or 'SSL'
+    strength: int
     swept: bool = False
     swept_index: Optional[pd.Timestamp] = None
 
 @dataclass
 class LiquidityPool:
-    """Represents a pool of liquidity (multiple levels close together)"""
     levels: List[LiquidityLevel]
-    type: str  # 'BSL' or 'SSL'
+    type: str
     high: float
     low: float
     center: float
@@ -27,111 +25,75 @@ class LiquidityPool:
 
 @dataclass
 class StopRun:
-    """Represents a stop run event"""
     index: pd.Timestamp
-    direction: str  # 'bullish' or 'bearish'
+    direction: str
     swept_level: float
     entry_price: float
-    type: str  # 'turtle_soup' or 'stop_hunt'
+    type: str
     levels_swept: List[LiquidityLevel]
 
 class LiquidityAnalyzer:
-    """
-    Analyzes liquidity in the market following ICT concepts:
-    - Buy-side liquidity (BSL) and Sell-side liquidity (SSL)
-    - Liquidity pools and voids
-    - Stop runs and turtle soup patterns
-    - Low resistance vs high resistance liquidity runs
-    """
-    
     def __init__(self, 
                  lookback_period: int = 20,
                  liquidity_threshold: float = 0.0001,
                  pool_threshold: float = 0.0005):
-        """
-        Args:
-            lookback_period: Bars to look back for liquidity levels
-            liquidity_threshold: Minimum price difference for separate levels
-            pool_threshold: Maximum price difference to group levels into pools
-        """
         self.lookback_period = lookback_period
         self.liquidity_threshold = liquidity_threshold
         self.pool_threshold = pool_threshold
-    
-    def identify_liquidity_levels(self, df: pd.DataFrame, 
-                                swing_points: List) -> List[LiquidityLevel]:
-        """
-        Identify significant highs and lows that represent liquidity
-        
-        Args:
-            df: DataFrame with OHLCV data
-            swing_points: List of swing highs and lows
-            
-        Returns:
-            List of LiquidityLevel objects
-        """
+
+    def identify_liquidity_levels(self, df: pd.DataFrame, swing_points: List) -> List[LiquidityLevel]:
         liquidity_levels = []
-        
-        # Extract highs and lows from swing points
+
         swing_highs = [sp for sp in swing_points if sp.type == 'high']
         swing_lows = [sp for sp in swing_points if sp.type == 'low']
-        
-        # Process swing highs for BSL
+
         for swing in swing_highs:
-            # Check how many times this level was tested
-            window_start = max(0, df.index.get_loc(swing.index) - self.lookback_period)
-            window_end = min(len(df), df.index.get_loc(swing.index) + self.lookback_period)
-            window_data = df.iloc[window_start:window_end]
-            
-            # Count touches (price came within threshold)
-            touches = 0
-            for idx, row in window_data.iterrows():
-                if abs(row['high'] - swing.price) / swing.price < self.liquidity_threshold:
-                    touches += 1
-            
-            liquidity_levels.append(LiquidityLevel(
-                index=swing.index,
-                price=swing.price,
-                type='BSL',
-                strength=touches
-            ))
-        
-        # Process swing lows for SSL
+            try:
+                loc = df.index.get_loc(swing.index)
+                if isinstance(loc, slice):
+                    loc = loc.start
+                window_start = max(0, loc - self.lookback_period)
+                window_end = min(len(df), loc + self.lookback_period)
+                window_data = df.iloc[window_start:window_end]
+                touches = sum(abs(row['high'] - swing.price) / swing.price < self.liquidity_threshold
+                              for _, row in window_data.iterrows())
+                liquidity_levels.append(LiquidityLevel(swing.index, swing.price, 'BSL', touches))
+            except Exception as e:
+                print(f"[ERROR: BSL] {e} for swing.index={swing.index}")
+
         for swing in swing_lows:
-            # Check how many times this level was tested
-            window_start = max(0, df.index.get_loc(swing.index) - self.lookback_period)
-            window_end = min(len(df), df.index.get_loc(swing.index) + self.lookback_period)
-            window_data = df.iloc[window_start:window_end]
-            
-            # Count touches
-            touches = 0
-            for idx, row in window_data.iterrows():
-                if abs(row['low'] - swing.price) / swing.price < self.liquidity_threshold:
-                    touches += 1
-            
-            liquidity_levels.append(LiquidityLevel(
-                index=swing.index,
-                price=swing.price,
-                type='SSL',
-                strength=touches
-            ))
-        
-        # Check if levels have been swept
+            try:
+                loc = df.index.get_loc(swing.index)
+                if isinstance(loc, slice):
+                    loc = loc.start
+                window_start = max(0, loc - self.lookback_period)
+                window_end = min(len(df), loc + self.lookback_period)
+                window_data = df.iloc[window_start:window_end]
+                touches = sum(abs(row['low'] - swing.price) / swing.price < self.liquidity_threshold
+                              for _, row in window_data.iterrows())
+                liquidity_levels.append(LiquidityLevel(swing.index, swing.price, 'SSL', touches))
+            except Exception as e:
+                print(f"[ERROR: SSL] {e} for swing.index={swing.index}")
+
         for level in liquidity_levels:
-            level_idx = df.index.get_loc(level.index)
-            
-            # Check bars after the level was formed
-            for i in range(level_idx + 1, len(df)):
-                if level.type == 'BSL' and df.iloc[i]['high'] > level.price:
-                    level.swept = True
-                    level.swept_index = df.index[i]
-                    break
-                elif level.type == 'SSL' and df.iloc[i]['low'] < level.price:
-                    level.swept = True
-                    level.swept_index = df.index[i]
-                    break
-        
+            try:
+                loc = df.index.get_loc(level.index)
+                if isinstance(loc, slice):
+                    loc = loc.start
+                for i in range(loc + 1, len(df)):
+                    if level.type == 'BSL' and df.iloc[i]['high'] > level.price:
+                        level.swept = True
+                        level.swept_index = df.index[i]
+                        break
+                    elif level.type == 'SSL' and df.iloc[i]['low'] < level.price:
+                        level.swept = True
+                        level.swept_index = df.index[i]
+                        break
+            except Exception as e:
+                print(f"[ERROR: sweep check] {e} for level.index={level.index}")
+
         return liquidity_levels
+
     
     def identify_liquidity_pools(self, 
                                liquidity_levels: List[LiquidityLevel]) -> List[LiquidityPool]:

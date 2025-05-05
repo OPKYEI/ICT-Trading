@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from .market_structure import SwingPoint
 
 @dataclass
 class OrderBlock:
@@ -39,12 +40,7 @@ class BreakerBlock:
     origin_type: str  # original 'support' or 'resistance'
     broken_idx: int  # index where structure was broken
 
-# src/features/pd_arrays.py
 
-import pandas as pd
-from typing import List
-from .market_structure import SwingPoint
-from .types import OrderBlock  # wherever your OrderBlock dataclass lives
 
 class PriceDeliveryArrays:
     """
@@ -64,85 +60,80 @@ class PriceDeliveryArrays:
         self.min_ob_strength = min_order_block_strength
 
     def identify_order_blocks(self, df: pd.DataFrame, swing_points: List[SwingPoint]) -> List[OrderBlock]:
-        """
-        Identify order blocks based on ICT criteria:
-        - Last down-closed candle before up move (bullish OB)
-        - Last up-closed candle before down move (bearish OB)
-
-        Args:
-            df: DataFrame with OHLCV data
-            swing_points: List of SwingPoint(index=Timestamp, type='high'/'low', price=float)
-
-        Returns:
-            List of OrderBlock objects
-        """
         order_blocks: List[OrderBlock] = []
 
-        # Pre-compute a mapping from timestamp -> integer loc
+        # Ensure index is unique to avoid get_loc returning slices
+        if not df.index.is_unique:
+            df = df.reset_index(drop=True)
+
+        # Build a clean timestamp-to-row map
         idx_map = {ts: i for i, ts in enumerate(df.index)}
 
         for prev_sp, curr_sp in zip(swing_points[:-1], swing_points[1:]):
-            # both swings must exist in our index
-            if prev_sp.index not in idx_map or curr_sp.index not in idx_map:
-                continue
+            try:
+                prev_i = idx_map.get(prev_sp.index, None)
+                curr_i = idx_map.get(curr_sp.index, None)
 
-            prev_i = idx_map[prev_sp.index]
-            curr_i = idx_map[curr_sp.index]
-
-            # need at least 2 candles in between
-            if curr_i - prev_i < 2:
-                continue
-
-            segment = df.iloc[prev_i : curr_i + 1]
-
-            # bullish OB: low → high
-            if prev_sp.type == "low" and curr_sp.type == "high":
-                # scan backwards for last red candle
-                reds = segment.iloc[:-1][segment["close"] < segment["open"]]
-                if reds.empty:
+                if prev_i is None or curr_i is None:
+                    continue
+                if curr_i - prev_i < 2:
                     continue
 
-                ob_loc = reds.index[-1]
-                ob_row = segment.loc[ob_loc]
-                move_strength = (curr_sp.price - prev_sp.price) / prev_sp.price
+                segment = df.iloc[prev_i:curr_i + 1]
+                segment_cut = segment.iloc[:-1]
 
-                if move_strength >= self.min_ob_strength:
-                    order_blocks.append(OrderBlock(
-                        start_idx=ob_loc, end_idx=ob_loc,
-                        type="bullish",
-                        high=ob_row["high"],
-                        low=ob_row["low"],
-                        open=ob_row["open"],
-                        close=ob_row["close"],
-                        mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
-                        origin_swing="low"
-                    ))
+                # Bullish OB: price moves from low → high
+                if prev_sp.type == "low" and curr_sp.type == "high":
+                    reds = segment_cut[segment_cut["close"] < segment_cut["open"]]
+                    if reds.empty:
+                        continue
 
-            # bearish OB: high → low
-            elif prev_sp.type == "high" and curr_sp.type == "low":
-                greens = segment.iloc[:-1][segment["close"] > segment["open"]]
-                if greens.empty:
-                    continue
+                    ob_row = reds.iloc[-1]
+                    ob_loc = ob_row.name
+                    move_strength = (curr_sp.price - prev_sp.price) / prev_sp.price
 
-                ob_loc = greens.index[-1]
-                ob_row = segment.loc[ob_loc]
-                move_strength = (prev_sp.price - curr_sp.price) / prev_sp.price
+                    if move_strength >= self.min_ob_strength:
+                        order_blocks.append(OrderBlock(
+                            start_idx=ob_loc,
+                            end_idx=ob_loc,
+                            type="bullish",
+                            high=ob_row["high"],
+                            low=ob_row["low"],
+                            open=ob_row["open"],
+                            close=ob_row["close"],
+                            mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
+                            origin_swing="low"
+                        ))
 
-                if move_strength >= self.min_ob_strength:
-                    order_blocks.append(OrderBlock(
-                        start_idx=ob_loc, end_idx=ob_loc,
-                        type="bearish",
-                        high=ob_row["high"],
-                        low=ob_row["low"],
-                        open=ob_row["open"],
-                        close=ob_row["close"],
-                        mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
-                        origin_swing="high"
-                    ))
+                # Bearish OB: price moves from high → low
+                elif prev_sp.type == "high" and curr_sp.type == "low":
+                    greens = segment_cut[segment_cut["close"] > segment_cut["open"]]
+                    if greens.empty:
+                        continue
+
+                    ob_row = greens.iloc[-1]
+                    ob_loc = ob_row.name
+                    move_strength = (prev_sp.price - curr_sp.price) / prev_sp.price
+
+                    if move_strength >= self.min_ob_strength:
+                        order_blocks.append(OrderBlock(
+                            start_idx=ob_loc,
+                            end_idx=ob_loc,
+                            type="bearish",
+                            high=ob_row["high"],
+                            low=ob_row["low"],
+                            open=ob_row["open"],
+                            close=ob_row["close"],
+                            mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
+                            origin_swing="high"
+                        ))
+            except Exception as e:
+                print(f"[ERROR: OB loop] {e} for ob.start_idx={prev_sp.index}")
 
         return order_blocks
 
-    # ... the rest of your class (FVG, breaker, etc.) remains unchanged ...
+
+   
 
     
     def identify_fvg(self, df: pd.DataFrame) -> List[FairValueGap]:

@@ -10,96 +10,111 @@ class DataLoader:
     """Load and preprocess financial data for ICT analysis"""
     
     def __init__(self, data_path: Optional[Path] = None):
-        self.data_path = data_path or Path('data/raw')
+        self.data_path = data_path or Path('data')
         self.data_path.mkdir(parents=True, exist_ok=True)
     
-    def load_data(self, 
-                  symbol: str, 
-                  start_date: str, 
-                  end_date: str, 
-                  interval: str = '1h',
-                  data_source: str = 'local') -> pd.DataFrame:
-        """
-        Load OHLCV data for a symbol
-        
-        Args:
-            symbol: Trading symbol (e.g., 'EURUSD')
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            interval: Data interval (1m, 5m, 15m, 1h, 4h, 1d, 1wk, 1mo)
-            data_source: 'local' or 'yfinance'
-        
-        Returns:
-            DataFrame with OHLCV data
-        """
+    def load_data(self, symbol: str, start_date: str, end_date: str, interval: str, data_source: str = 'local') -> pd.DataFrame:
+        """Main data loading method with proper fallback."""
+
+        df = None
         if data_source == 'local':
-            df = self._load_local_data(symbol, start_date, end_date, interval)
-            if df is not None and not df.empty:
-                return df
-            else:
-                print(f"Local data not found for {symbol}, falling back to yfinance")
-        
-        # Fallback to yfinance
-        return self._load_yfinance_data(symbol, start_date, end_date, interval)
-    
-    def _load_local_data(self, symbol: str, start_date: str, end_date: str, interval: str) -> Optional[pd.DataFrame]:
-        """Load data from local files"""
-        # Look for files matching pattern: EURUSD_1h.csv, EURUSD_1h_2023.csv, etc.
+            try:
+                df = self._load_local_data(symbol, start_date, end_date, interval)
+                if df is not None and not df.empty:
+                    print(f"Loaded local data for {symbol}_{interval}")
+                    return df
+                else:
+                    print(f"No local data found for {symbol}_{interval}, falling back to yfinance.")
+            except Exception as e:
+                print(f"Local data loading error: {e}. Falling back to yfinance.")
+
+        # fallback to yfinance explicitly
+        try:
+            return self._load_yfinance_data(symbol, start_date, end_date, interval)
+        except Exception as e:
+            raise Exception(f"Error loading data from yfinance: {e}")
+
+
+    def _load_local_data(self, symbol: str, start_date: str, end_date: str, interval: str) -> pd.DataFrame:
         pattern = f"{symbol}*{interval}*.csv"
         files = glob.glob(str(self.data_path / pattern))
-        
+
         if not files:
-            return None
-        
-        # Load all matching files and combine
+            raise FileNotFoundError(f"No local files found matching pattern {pattern} in {self.data_path.resolve()}")
+
         dfs = []
         for file in files:
             try:
-                df = pd.read_csv(file, parse_dates=['timestamp'], index_col='timestamp')
+                df = pd.read_csv(file)
+                if 'timestamp' not in df.columns:
+                    raise KeyError(f"'timestamp' column missing in file {file}")
+                df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+                df = df.dropna(subset=['timestamp']).set_index('timestamp')
                 dfs.append(df)
             except Exception as e:
-                print(f"Error loading {file}: {e}")
-                continue
-        
-        if not dfs:
-            return None
-        
-        # Combine and filter by date range
-        df = pd.concat(dfs).sort_index()
-        df = df[start_date:end_date]
-        
-        # Standardize column names
-        df.columns = [col.lower() for col in df.columns]
-        
-        # Ensure required columns exist
+                raise Exception(f"Error loading file {file}: {e}")
+
+        combined_df = pd.concat(dfs).sort_index()
+
+        combined_df.columns = [col.lower() for col in combined_df.columns]
+
         required_cols = ['open', 'high', 'low', 'close', 'volume']
-        if all(col in df.columns for col in required_cols):
-            return df[required_cols]
-        
-        return None
-    
-    def _load_yfinance_data(self, symbol: str, start_date: str, end_date: str, interval: str) -> pd.DataFrame:
-        """Load data from yfinance"""
+        missing_cols = [col for col in required_cols if col not in combined_df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing required columns: {missing_cols}")
+
+        return combined_df[required_cols]
+
+
+    def _load_yfinance_data(self, symbol, start_date, end_date, interval):
+        interval_map = {
+            "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+            "60m": "60m", "1h": "60m", "1d": "1d", "1wk": "1wk"
+        }
+
+        yf_interval = interval_map.get(interval.lower())
+        if not yf_interval:
+            raise ValueError(f"Invalid interval '{interval}' provided.")
+
+        ticker = symbol if "=" in symbol else f"{symbol}=X"
         try:
-            # Convert symbol format if needed (EURUSD -> EURUSD=X)
-            yf_symbol = symbol if '=' in symbol else f"{symbol}=X"
-            
-            df = yf.download(yf_symbol, start=start_date, end=end_date, interval=interval)
-            if df.empty:
-                raise ValueError(f"No data found for {symbol}")
-            
-            # Standardize column names
-            df.columns = [col.lower() for col in df.columns]
+            data = yf.download(tickers=ticker, start=start_date, end=end_date, interval=yf_interval, progress=True)
+
+            if data.empty:
+                raise ValueError(f"No data found for {ticker}")
+
+            # Handling MultiIndex columns explicitly and accurately
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = ['_'.join(col).strip().lower() for col in data.columns]
+                # Rename explicitly to standard names
+                rename_dict = {}
+                for col in data.columns:
+                    if 'open' in col:
+                        rename_dict[col] = 'open'
+                    elif 'high' in col:
+                        rename_dict[col] = 'high'
+                    elif 'low' in col:
+                        rename_dict[col] = 'low'
+                    elif 'close' in col:
+                        rename_dict[col] = 'close'
+                    elif 'volume' in col:
+                        rename_dict[col] = 'volume'
+                data = data.rename(columns=rename_dict)
+
+            else:
+                data.columns = data.columns.str.lower()
+
             required_cols = ['open', 'high', 'low', 'close', 'volume']
-            
-            if not all(col in df.columns for col in required_cols):
-                raise ValueError(f"Missing required columns. Found: {df.columns.tolist()}")
-            
-            return df[required_cols]
-        
+            missing_cols = [col for col in required_cols if col not in data.columns]
+            if missing_cols:
+                raise ValueError(f"Missing expected columns after processing: {missing_cols}")
+
+            return data[required_cols]
+
         except Exception as e:
-            raise Exception(f"Error loading data from yfinance for {symbol}: {str(e)}")
-    
+            raise Exception(f"Error loading data from yfinance for {ticker}: {str(e)}")
+
+  
     def validate_data(self, df: pd.DataFrame) -> bool:
         """Validate data quality"""
         # Check for missing values
