@@ -45,20 +45,24 @@ df.set_index("datetime", inplace=True)
 
 print("✅ STEP 1 complete: Data loaded")
 
-print("✅ STEP 2: Starting feature engineering")
+print("✅ STEP 2: Splitting raw data (80/20)")
+train_size = int(len(df) * 0.8)
+train_data = df.iloc[:train_size]
+test_data = df.iloc[train_size:]
+print(f"Train samples: {len(train_data)}, Test samples: {len(test_data)}")
+
+print("✅ STEP 3: Feature engineering on separate datasets")
 fe = ICTFeatureEngineer(lookback_periods=[5, 10, 20], feature_selection_threshold=0.01)
-fs = fe.engineer_features(df, symbol="XAUUSD", additional_data={})
-X = fs.features
+train_features = fe.engineer_features(train_data, symbol="XAUUSD", additional_data={}).features
+test_features = fe.engineer_features(test_data, symbol="XAUUSD", additional_data={}).features
 
-if "future_direction_5" not in X.columns:
-    raise ValueError("Missing target column: future_direction_5")
-y = X.pop("future_direction_5")
+# Remove future-looking features except our target
+future_cols = [col for col in train_features.columns if 'future_' in col and col != 'future_direction_5']
+X_train = train_features.drop(columns=future_cols)
+y_train = X_train.pop('future_direction_5')
 
-print("✅ STEP 2 complete: Features engineered")
-
-print("✅ STEP 3: Splitting train/test data (80/20)")
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-print(f"Train samples: {len(X_train)}, Test samples: {len(X_test)}")
+X_test = test_features.drop(columns=future_cols)
+y_test = X_test.pop('future_direction_5')
 
 print("✅ STEP 4: Training multiple models")
 model_configs = {
@@ -88,8 +92,11 @@ print("\nClassification Report:\n", classification_report(y_test, y_pred))
 print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
 # Backtesting
-price_df = df.loc[df.index.intersection(X_test.index)][["close"]]
+price_df = test_data[["close"]]
 signals = TradingStrategy(best_model).generate_signals(X_test)
+# Ensure signals and price_df have exactly the same index
+signals = signals.loc[signals.index.intersection(price_df.index)]
+price_df = price_df.loc[price_df.index.intersection(signals.index)]
 equity = backtest_signals(signals, price_df, initial_equity=10_000)
 
 print("✅ STEP 6: Saving equity curve")

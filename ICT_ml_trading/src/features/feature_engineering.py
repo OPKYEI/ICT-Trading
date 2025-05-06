@@ -487,10 +487,10 @@ class ICTFeatureEngineer:
         # Drop original categorical columns
         features = features.drop(columns=categorical_columns)
         
-        # Handle missing values
-        features = features.fillna(method='ffill').fillna(method='bfill')
+        # Handle missing values - ONLY use forward fill to avoid leakage
+        features = features.fillna(method='ffill')
         
-        # Drop rows with remaining NaNs (typically at the beginning/end)
+        # Drop rows with remaining NaNs (typically at the beginning)
         features = features.dropna()
         
         # Remove infinite values
