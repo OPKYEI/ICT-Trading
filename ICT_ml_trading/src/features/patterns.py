@@ -221,7 +221,7 @@ class PatternRecognition:
                                 swing_points: List) -> List[TradePattern]:
         """
         Find Turtle Soup patterns (false breakouts)
-        
+
         Criteria:
         1. Price sweeps liquidity (stop hunt)
         2. Quick reversal after sweep
@@ -229,38 +229,34 @@ class PatternRecognition:
         """
         patterns = []
         atr = self.calculate_atr(df)
-        
+
         for i, level in enumerate(liquidity_levels):
             if not level.swept:
                 continue
-            
+
             sweep_idx = df.index.get_loc(level.swept_index)
+            if isinstance(sweep_idx, slice):
+                sweep_idx = sweep_idx.start
+
             sweep_bar = df.iloc[sweep_idx]
-            
-            # Look for reversal within next 3-5 bars
+
             for j in range(1, min(6, len(df) - sweep_idx)):
                 current_idx = sweep_idx + j
                 current_bar = df.iloc[current_idx]
-                
-                # Check for reversal
-                if level.type == 'BSL':  # Buy-side liquidity swept
-                    # Look for bearish reversal
+
+                if level.type == 'BSL':
                     if current_bar['close'] < sweep_bar['close'] - (sweep_bar['high'] - sweep_bar['low']):
                         entry_price = current_bar['close']
                         stop_loss = sweep_bar['high'] + atr[current_idx] * 0.5
-                        
-                        # Find recent swing low for target
-                        recent_low = None
-                        for sp in reversed(swing_points):
-                            if sp.type == 'low' and sp.index < df.index[current_idx]:
-                                recent_low = sp
-                                break
-                        
+
+                        recent_low = next((sp for sp in reversed(swing_points)
+                                           if sp.type == 'low' and sp.index < df.index[current_idx]), None)
+
                         if recent_low:
                             tp1 = recent_low.price
                             tp2 = recent_low.price - (sweep_bar['high'] - recent_low.price) * 0.5
                             tp3 = recent_low.price - (sweep_bar['high'] - recent_low.price)
-                            
+
                             patterns.append(TradePattern(
                                 pattern_type='turtle_soup',
                                 confidence=0.8,
@@ -272,25 +268,20 @@ class PatternRecognition:
                                 direction='short',
                                 notes="Buy-side liquidity sweep (Turtle Soup)"
                             ))
-                
-                elif level.type == 'SSL':  # Sell-side liquidity swept
-                    # Look for bullish reversal
+
+                elif level.type == 'SSL':
                     if current_bar['close'] > sweep_bar['close'] + (sweep_bar['high'] - sweep_bar['low']):
                         entry_price = current_bar['close']
                         stop_loss = sweep_bar['low'] - atr[current_idx] * 0.5
-                        
-                        # Find recent swing high for target
-                        recent_high = None
-                        for sp in reversed(swing_points):
-                            if sp.type == 'high' and sp.index < df.index[current_idx]:
-                                recent_high = sp
-                                break
-                        
+
+                        recent_high = next((sp for sp in reversed(swing_points)
+                                            if sp.type == 'high' and sp.index < df.index[current_idx]), None)
+
                         if recent_high:
                             tp1 = recent_high.price
                             tp2 = recent_high.price + (recent_high.price - sweep_bar['low']) * 0.5
                             tp3 = recent_high.price + (recent_high.price - sweep_bar['low'])
-                            
+
                             patterns.append(TradePattern(
                                 pattern_type='turtle_soup',
                                 confidence=0.8,
@@ -302,8 +293,9 @@ class PatternRecognition:
                                 direction='long',
                                 notes="Sell-side liquidity sweep (Turtle Soup)"
                             ))
-        
-        return patterns
+
+            return patterns
+
     
     def find_breaker_patterns(self, df: pd.DataFrame,
                             breaker_blocks: List,

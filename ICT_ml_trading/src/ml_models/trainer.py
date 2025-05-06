@@ -2,44 +2,52 @@
 
 import os
 import pickle
-from typing import Any, Dict, Optional, Tuple
-
 import pandas as pd
-from sklearn.base import clone, BaseEstimator
-from sklearn.model_selection import ParameterGrid, ParameterSampler, cross_val_score
+from typing import Any, Dict, Optional, Tuple, List
+
+from sklearn.model_selection import ParameterGrid, train_test_split, cross_val_score
+from sklearn.base import BaseEstimator, clone
 from tqdm.auto import tqdm
+from sklearn.metrics import accuracy_score
 
 
 def grid_search_with_checkpoint(
     model: BaseEstimator,
     param_grid: Dict[str, Any],
-    X: Any,
-    y: Any,
+    X: pd.DataFrame,
+    y: pd.Series,
     cv: int = 5,
     scoring: str = 'accuracy',
     checkpoint_path: str = 'grid_checkpoint.pkl',
     resume: bool = True
 ) -> Tuple[BaseEstimator, pd.DataFrame]:
+    """
+    Performs grid search with checkpoint support and final training on full data.
+    """
     grid = list(ParameterGrid(param_grid))
     results = []
     start = 0
 
     if resume and os.path.exists(checkpoint_path):
-        saved = pickle.load(open(checkpoint_path, 'rb'))
-        results = saved['results']
-        start = len(results)
+        with open(checkpoint_path, 'rb') as f:
+            saved = pickle.load(f)
+            results = saved['results']
+            start = len(results)
 
-    for params in tqdm(grid[start:], total=len(grid), desc='GridSearch'):
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+
+    for params in tqdm(grid[start:], total=len(grid), desc=f"GridSearch {model.__class__.__name__}"):
         clf = clone(model).set_params(**params)
         scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, n_jobs=-1)
         results.append({**params, 'mean_test_score': scores.mean()})
-        pickle.dump({'results': results}, open(checkpoint_path, 'wb'))
+        with open(checkpoint_path, 'wb') as f:
+            pickle.dump({'results': results}, f)
 
     df = pd.DataFrame(results)
     best_row = df.loc[df['mean_test_score'].idxmax()].to_dict()
     best_params = {k: best_row[k] for k in param_grid}
 
-    # Cast float ints back to int for tree-based params
+    # Cast float → int where needed
     for k, v in best_params.items():
         if isinstance(v, float) and v.is_integer():
             best_params[k] = int(v)
@@ -48,41 +56,45 @@ def grid_search_with_checkpoint(
     return best_model, df
 
 
-def random_search_with_checkpoint(
-    model: BaseEstimator,
-    param_distributions: Dict[str, Any],
-    X: Any,
-    y: Any,
-    cv: int = 5,
-    scoring: str = 'accuracy',
-    n_iter: int = 20,
-    random_state: Optional[int] = None,
-    checkpoint_path: str = 'random_checkpoint.pkl',
-    resume: bool = True
-) -> Tuple[BaseEstimator, pd.DataFrame]:
-    sampler = list(ParameterSampler(param_distributions, n_iter=n_iter, random_state=random_state))
-    results = []
-    start = 0
+def train_multiple_models_with_split(
+    models: Dict[str, Tuple[BaseEstimator, Dict[str, Any]]],
+    X: pd.DataFrame,
+    y: pd.Series,
+    test_size: float = 0.2,
+    checkpoint_dir: str = 'checkpoints',
+    checkpoint_prefix: str = "model",
+    scoring: str = 'accuracy'
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Trains multiple models with 80/20 split and logs results.
+    Returns best model objects and performance.
+    """
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, shuffle=False)
+    results = {}
 
-    if resume and os.path.exists(checkpoint_path):
-        saved = pickle.load(open(checkpoint_path, 'rb'))
-        results = saved['results']
-        start = len(results)
+    for name, (model, param_grid) in models.items():
+        print(f"\n🔍 Training {name}...")
+        checkpoint_path = os.path.join(checkpoint_dir, f"{checkpoint_prefix}_{name}_checkpoint.pkl")
+        trained_model, df_results = grid_search_with_checkpoint(
+            model=model,
+            param_grid=param_grid,
+            X=X_train,
+            y=y_train,
+            cv=3,
+            scoring=scoring,
+            checkpoint_path=checkpoint_path,
+            resume=True
+        )
 
-    for params in tqdm(sampler[start:], total=len(sampler), desc='RandomSearch'):
-        clf = clone(model).set_params(**params)
-        scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, n_jobs=-1)
-        results.append({**params, 'mean_test_score': scores.mean()})
-        pickle.dump({'results': results}, open(checkpoint_path, 'wb'))
+        # Final evaluation on holdout set
+        y_pred = trained_model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
 
-    df = pd.DataFrame(results)
-    best_row = df.loc[df['mean_test_score'].idxmax()].to_dict()
-    best_params = {k: best_row[k] for k in param_distributions}
+        print(f"✅ {name} accuracy on holdout test: {acc:.4f}")
+        results[name] = {
+            "model": trained_model,
+            "grid_results": df_results,
+            "test_accuracy": acc
+        }
 
-    # Cast float ints back to int for tree-based params
-    for k, v in best_params.items():
-        if isinstance(v, float) and v.is_integer():
-            best_params[k] = int(v)
-
-    best_model = clone(model).set_params(**best_params).fit(X, y)
-    return best_model, df
+    return results

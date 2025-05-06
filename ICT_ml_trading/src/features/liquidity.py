@@ -51,7 +51,7 @@ class LiquidityAnalyzer:
             try:
                 loc = df.index.get_loc(swing.index)
                 if isinstance(loc, slice):
-                    loc = loc.start
+                    loc = loc.start or 0
                 window_start = max(0, loc - self.lookback_period)
                 window_end = min(len(df), loc + self.lookback_period)
                 window_data = df.iloc[window_start:window_end]
@@ -65,7 +65,7 @@ class LiquidityAnalyzer:
             try:
                 loc = df.index.get_loc(swing.index)
                 if isinstance(loc, slice):
-                    loc = loc.start
+                    loc = loc.start or 0
                 window_start = max(0, loc - self.lookback_period)
                 window_end = min(len(df), loc + self.lookback_period)
                 window_data = df.iloc[window_start:window_end]
@@ -79,7 +79,7 @@ class LiquidityAnalyzer:
             try:
                 loc = df.index.get_loc(level.index)
                 if isinstance(loc, slice):
-                    loc = loc.start
+                    loc = loc.start or 0
                 for i in range(loc + 1, len(df)):
                     if level.type == 'BSL' and df.iloc[i]['high'] > level.price:
                         level.swept = True
@@ -202,91 +202,39 @@ class LiquidityAnalyzer:
         
         return pools
     
-    def identify_stop_runs(self, df: pd.DataFrame, 
-                          liquidity_levels: List[LiquidityLevel],
-                          reversal_threshold: float = 0.002) -> List[StopRun]:
-        """
-        Identify stop runs and turtle soup patterns
-        
-        Args:
-            df: DataFrame with OHLCV data
-            liquidity_levels: List of liquidity levels
-            reversal_threshold: Minimum reversal size to confirm stop run
-            
-        Returns:
-            List of StopRun objects
-        """
+    def identify_stop_runs(self, df: pd.DataFrame, liquidity_levels: List[LiquidityLevel], reversal_threshold: float = 0.002) -> List[StopRun]:
         stop_runs = []
-        
-        for i, level in enumerate(liquidity_levels):
+
+        for level in liquidity_levels:
             if not level.swept:
                 continue
-                
-            sweep_idx = df.index.get_loc(level.swept_index)
-            
-            # Check for reversal after sweep
-            if level.type == 'BSL':
-                # Bullish stop run - price sweeps BSL then reverses down
-                # Look for reversal within next 5 bars
-                for j in range(1, min(6, len(df) - sweep_idx)):
-                    current_bar = df.iloc[sweep_idx + j]
-                    sweep_bar = df.iloc[sweep_idx]
-                    
-                    # Check if price reversed down significantly
+
+            sweep_loc = df.index.get_loc(level.swept_index)
+            if isinstance(sweep_loc, slice):
+                sweep_loc = sweep_loc.start or 0
+
+            max_offset = min(6, len(df) - sweep_loc)
+            for j in range(1, max_offset):
+                current_bar = df.iloc[sweep_loc + j]
+                sweep_bar = df.iloc[sweep_loc]
+
+                if level.type == 'BSL':
                     if current_bar['close'] < sweep_bar['close'] - (sweep_bar['high'] - sweep_bar['low']):
-                        # Calculate reversal size
                         reversal_size = (sweep_bar['high'] - current_bar['low']) / sweep_bar['high']
-                        
                         if reversal_size >= reversal_threshold:
-                            # Find all levels swept in this run
-                            swept_levels = []
-                            for other_level in liquidity_levels:
-                                if (other_level.type == 'BSL' and 
-                                    other_level.swept_index == level.swept_index and
-                                    other_level.price <= sweep_bar['high']):
-                                    swept_levels.append(other_level)
-                            
-                            stop_runs.append(StopRun(
-                                index=current_bar.name,
-                                direction='bearish',
-                                swept_level=sweep_bar['high'],
-                                entry_price=current_bar['close'],
-                                type='turtle_soup' if reversal_size >= reversal_threshold * 2 else 'stop_hunt',
-                                levels_swept=swept_levels
-                            ))
+                            swept_levels = [lvl for lvl in liquidity_levels if lvl.type == 'BSL' and lvl.swept_index == level.swept_index and lvl.price <= sweep_bar['high']]
+                            stop_runs.append(StopRun(index=current_bar.name, direction='bearish', swept_level=sweep_bar['high'], entry_price=current_bar['close'], type='turtle_soup' if reversal_size >= reversal_threshold * 2 else 'stop_hunt', levels_swept=swept_levels))
                             break
-            
-            else:  # SSL
-                # Bearish stop run - price sweeps SSL then reverses up
-                for j in range(1, min(6, len(df) - sweep_idx)):
-                    current_bar = df.iloc[sweep_idx + j]
-                    sweep_bar = df.iloc[sweep_idx]
-                    
-                    # Check if price reversed up significantly
+                else:
                     if current_bar['close'] > sweep_bar['close'] + (sweep_bar['high'] - sweep_bar['low']):
-                        # Calculate reversal size
                         reversal_size = (current_bar['high'] - sweep_bar['low']) / sweep_bar['low']
-                        
                         if reversal_size >= reversal_threshold:
-                            # Find all levels swept in this run
-                            swept_levels = []
-                            for other_level in liquidity_levels:
-                                if (other_level.type == 'SSL' and 
-                                    other_level.swept_index == level.swept_index and
-                                    other_level.price >= sweep_bar['low']):
-                                    swept_levels.append(other_level)
-                            
-                            stop_runs.append(StopRun(
-                                index=current_bar.name,
-                                direction='bullish',
-                                swept_level=sweep_bar['low'],
-                                entry_price=current_bar['close'],
-                                type='turtle_soup' if reversal_size >= reversal_threshold * 2 else 'stop_hunt',
-                                levels_swept=swept_levels
-                            ))
+                            swept_levels = [lvl for lvl in liquidity_levels if lvl.type == 'SSL' and lvl.swept_index == level.swept_index and lvl.price >= sweep_bar['low']]
+                            stop_runs.append(StopRun(index=current_bar.name, direction='bullish', swept_level=sweep_bar['low'], entry_price=current_bar['close'], type='turtle_soup' if reversal_size >= reversal_threshold * 2 else 'stop_hunt', levels_swept=swept_levels))
                             break
-        
+
         return stop_runs
+
     
     def classify_liquidity_run(self, df: pd.DataFrame, 
                              start_idx: int, end_idx: int,

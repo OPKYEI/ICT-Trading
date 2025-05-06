@@ -421,34 +421,43 @@ class ICTFeatureEngineer:
     
     def _add_technical_indicators(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
         """Add technical indicators"""
+
         # ATR for volatility
         features['atr'] = self.patterns.calculate_atr(data)
         features['atr_normalized'] = features['atr'] / data['close']
-        
+
         # Moving averages
         for period in self.lookback_periods:
             features[f'sma_{period}'] = data['close'].rolling(window=period).mean()
-            features[f'distance_from_sma_{period}'] = (data['close'] - features[f'sma_{period}']) / features[f'sma_{period}']
-        
+            features[f'distance_from_sma_{period}'] = (
+                data['close'] - features[f'sma_{period}']
+            ) / features[f'sma_{period}']
+
         # RSI
         delta = data['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
         rs = gain / loss
         features['rsi'] = 100 - (100 / (1 + rs))
-        
+
         # Bollinger Bands
         features['bb_middle'] = data['close'].rolling(window=20).mean()
         features['bb_std'] = data['close'].rolling(window=20).std()
         features['bb_upper'] = features['bb_middle'] + (features['bb_std'] * 2)
         features['bb_lower'] = features['bb_middle'] - (features['bb_std'] * 2)
-        features['bb_position'] = (data['close'] - features['bb_lower']) / (features['bb_upper'] - features['bb_lower'])
-        
-        # Volume features
-        features['volume_sma'] = data['volume'].rolling(window=20).mean()
-        features['volume_ratio'] = data['volume'] / features['volume_sma']
-        
+        features['bb_position'] = (data['close'] - features['bb_lower']) / (
+            features['bb_upper'] - features['bb_lower']
+        )
+
+        # Volume features (optional)
+        if 'volume' in data.columns:
+            features['volume_sma'] = data['volume'].rolling(window=20).mean()
+            features['volume_ratio'] = data['volume'] / features['volume_sma']
+        else:
+            print("⚠️ Skipping volume indicators: 'volume' column not found in data.")
+
         return features
+
     
     def _add_target_variables(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
         """Add target variables for supervised learning"""
