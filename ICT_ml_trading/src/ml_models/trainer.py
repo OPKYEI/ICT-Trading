@@ -4,97 +4,144 @@ import os
 import pickle
 import pandas as pd
 from typing import Any, Dict, Optional, Tuple, List
-
 from sklearn.model_selection import ParameterGrid, train_test_split, cross_val_score
 from sklearn.base import BaseEstimator, clone
 from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score
-
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import get_scorer
+       
 
 def grid_search_with_checkpoint(
     model: BaseEstimator,
     param_grid: Dict[str, Any],
     X: pd.DataFrame,
     y: pd.Series,
-    cv: int = 5,
+    outer_splits: int = 5,
+    inner_splits: int = 3,
     scoring: str = 'accuracy',
-    checkpoint_path: str = 'grid_checkpoint.pkl',
-    resume: bool = True
-) -> Tuple[BaseEstimator, pd.DataFrame]:
+    checkpoint_dir: str = 'checkpoints',
+    prefix: str = 'grid'
+) -> Tuple[BaseEstimator, float, List[float]]:
     """
-    Performs grid search with checkpoint support and final training on full data.
+    📊 Nested TimeSeriesSplit CV:
+    1️⃣ Outer loop for honest test performance (outer_splits)
+    2️⃣ Inner loop for hyperparam tuning (inner_splits)
+    Returns final_model trained on full data, average outer score, and per-fold scores.
     """
-    grid = list(ParameterGrid(param_grid))
-    results = []
-    start = 0
+    
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
-    if resume and os.path.exists(checkpoint_path):
-        with open(checkpoint_path, 'rb') as f:
-            saved = pickle.load(f)
-            results = saved['results']
-            start = len(results)
+    outer_cv = TimeSeriesSplit(n_splits=outer_splits)
+    inner_cv = TimeSeriesSplit(n_splits=inner_splits)
+    scorer = get_scorer(scoring)
 
-    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    outer_scores: List[float] = []
+    best_params_list: List[Dict[str, Any]] = []
 
-    for params in tqdm(grid[start:], total=len(grid), desc=f"GridSearch {model.__class__.__name__}"):
-        clf = clone(model).set_params(**params)
-        scores = cross_val_score(clf, X, y, cv=cv, scoring=scoring, n_jobs=-1)
-        results.append({**params, 'mean_test_score': scores.mean()})
-        with open(checkpoint_path, 'wb') as f:
-            pickle.dump({'results': results}, f)
+    # Outer folds
+    for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X), start=1):
+        print(f"📈 Outer fold {fold}/{outer_splits}")
+        X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
+        X_te, y_te = X.iloc[test_idx],  y.iloc[test_idx]
 
-    df = pd.DataFrame(results)
-    best_row = df.loc[df['mean_test_score'].idxmax()].to_dict()
-    best_params = {k: best_row[k] for k in param_grid}
+        # Inner grid search
+        best_score = float('-inf')
+        best_params: Dict[str,Any] = {}
+        for params in ParameterGrid(param_grid):
+            clf = clone(model).set_params(**params)
+            scores = []
+            for _, (itr, ivl) in enumerate(inner_cv.split(X_tr)):
+                X_itr, y_itr = X_tr.iloc[itr], y_tr.iloc[itr]
+                X_ivl, y_ivl = X_tr.iloc[ivl], y_tr.iloc[ivl]
+                clf.fit(X_itr, y_itr)
+                scores.append(scorer(clf, X_ivl, y_ivl))
+            mean_inner = sum(scores) / len(scores)
+            if mean_inner > best_score:
+                best_score = mean_inner
+                best_params = params
 
-    # Cast float → int where needed
-    for k, v in best_params.items():
-        if isinstance(v, float) and v.is_integer():
-            best_params[k] = int(v)
+        print(f"🔍 Best inner params fold {fold}: {best_params}, score {best_score:.4f}")
+        best_params_list.append(best_params)
 
-    best_model = clone(model).set_params(**best_params).fit(X, y)
-    return best_model, df
+        # Retrain on full train split
+        best_clf = clone(model).set_params(**best_params).fit(X_tr, y_tr)
+        outer_score = scorer(best_clf, X_te, y_te)
+        print(f"✅ Outer fold {fold} test {scoring}: {outer_score:.4f}")
+        outer_scores.append(outer_score)
 
+        # Checkpoint each fold's model
+        ckpt_path = os.path.join(checkpoint_dir, f"{prefix}_{model.__class__.__name__}_fold{fold}.pkl")
+        with open(ckpt_path, 'wb') as f:
+            pickle.dump({'params': best_params}, f)
+
+    avg_score = sum(outer_scores) / len(outer_scores)
+    print(f"📊 Average nested CV {scoring}: {avg_score:.4f}")
+
+    # Choose most common best_params
+    from collections import Counter
+    param_tuples = [tuple(sorted(p.items())) for p in best_params_list]
+    most_common = Counter(param_tuples).most_common(1)[0][0]
+    final_params = dict(most_common)
+
+    # Final model on full data
+    final_model = clone(model).set_params(**final_params).fit(X, y)
+    return final_model, avg_score, outer_scores
 
 def train_multiple_models_with_split(
     models: Dict[str, Tuple[BaseEstimator, Dict[str, Any]]],
     X: pd.DataFrame,
     y: pd.Series,
-    test_size: float = 0.2,
+    n_splits: int = 5,
     checkpoint_dir: str = 'checkpoints',
     checkpoint_prefix: str = "model",
     scoring: str = 'accuracy'
-) -> Dict[str, Dict[str, Any]]:
+) -> Dict[str, float]:
     """
-    Trains multiple models with 80/20 split and logs results.
-    Returns best model objects and performance.
+    📈 Walk-forward (rolling) analysis:
+      - Split data into n_splits successive folds
+      - In each fold: grid-search on train window, test on next window
+      - Report average accuracy per model
     """
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, shuffle=False)
-    results = {}
+    # Ensure checkpoint directory exists
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
-    for name, (model, param_grid) in models.items():
-        print(f"\n🔍 Training {name}...")
-        checkpoint_path = os.path.join(checkpoint_dir, f"{checkpoint_prefix}_{name}_checkpoint.pkl")
-        trained_model, df_results = grid_search_with_checkpoint(
-            model=model,
-            param_grid=param_grid,
-            X=X_train,
-            y=y_train,
-            cv=3,
-            scoring=scoring,
-            checkpoint_path=checkpoint_path,
-            resume=True
-        )
+    # Prepare rolling splitter
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    fold_results: Dict[str, List[float]] = {name: [] for name in models}
 
-        # Final evaluation on holdout set
-        y_pred = trained_model.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
+    # Loop over each fold
+    for fold, (train_idx, test_idx) in enumerate(tscv.split(X), start=1):
+        print(f"\n📈 Walk-forward fold {fold}/{n_splits}")
+        X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
+        X_val, y_val = X.iloc[test_idx],  y.iloc[test_idx]
 
-        print(f"✅ {name} accuracy on holdout test: {acc:.4f}")
-        results[name] = {
-            "model": trained_model,
-            "grid_results": df_results,
-            "test_accuracy": acc
-        }
+        # For each model, tune then test
+        for name, (model, param_grid) in models.items():
+            print(f"🔍 Fold {fold} training {name}...")
+            # Checkpoint per fold
+            ckpt = os.path.join(checkpoint_dir, f"{checkpoint_prefix}_{name}_fold{fold}.pkl")
+            best_model, _ = grid_search_with_checkpoint(
+                model=model,
+                param_grid=param_grid,
+                X=X_tr,
+                y=y_tr,
+                cv=TimeSeriesSplit(n_splits=3),
+                scoring=scoring,
+                checkpoint_path=ckpt,
+                resume=True
+            )
+            # Evaluate on validation slice
+            y_pred = best_model.predict(X_val)
+            acc = accuracy_score(y_val, y_pred)
+            print(f"✅ Fold {fold} {name} accuracy: {acc:.4f}")
+            fold_results[name].append(acc)
 
-    return results
+    # Compute & return average performance
+    avg_results: Dict[str, float] = {}
+    for name, scores in fold_results.items():
+        avg = sum(scores) / len(scores)
+        print(f"\n📊 {name} average walk-forward accuracy: {avg:.4f}")
+        avg_results[name] = avg
+
+    return avg_results

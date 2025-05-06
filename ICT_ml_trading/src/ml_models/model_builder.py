@@ -7,6 +7,7 @@ from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.svm import SVC
+from xgboost import XGBClassifier
 
 class ModelBuilder:
     """
@@ -99,9 +100,43 @@ class ModelBuilder:
             )
         ))
         return Pipeline(steps)
+    @staticmethod
+    def build_xgboost(
+        n_estimators: int = 100,
+        learning_rate: float = 0.1,
+        max_depth: int = 3,
+        subsample: float = 1.0,
+        colsample_bytree: float = 1.0,
+        random_state: int = 42,
+        pca_components: Optional[int] = None
+    ) -> Pipeline:
+        """
+        XGBoost classifier pipeline:
+        - Standard scaling
+        - Optional PCA
+        - XGBClassifier with specified hyperparameters
+        """
+        steps = [('scaler', StandardScaler())]
+        if pca_components:
+            steps.append(('pca', PCA(n_components=pca_components)))
+        steps.append((
+            'clf',
+            XGBClassifier(
+                n_estimators=n_estimators,
+                learning_rate=learning_rate,
+                max_depth=max_depth,
+                subsample=subsample,
+                colsample_bytree=colsample_bytree,
+                random_state=random_state,
+                use_label_encoder=False,
+                eval_metric='logloss'
+            )
+        ))
+        return Pipeline(steps)
 
 # Expose module-level builder functions for convenience
 build_logistic_regression = ModelBuilder.build_logistic_regression
-build_random_forest = ModelBuilder.build_random_forest
-build_gradient_boosting = ModelBuilder.build_gradient_boosting
-build_svm = ModelBuilder.build_svm
+build_random_forest       = ModelBuilder.build_random_forest
+build_gradient_boosting   = ModelBuilder.build_gradient_boosting
+build_svm                 = ModelBuilder.build_svm
+build_xgboost             = ModelBuilder.build_xgboost  # ← expose the new method

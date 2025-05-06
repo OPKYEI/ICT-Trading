@@ -180,47 +180,60 @@ class ICTFeatureEngineer:
         return features
     
     def _add_time_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
-        """Add time-based features without timezone conversion."""
+        """
+        Add time-based features using rolling/expanding windows to avoid lookahead.
+        - Hourly highs/lows computed over a 1-hour window ending at current bar.
+        - Daily ranges computed over a 1-day window ending at current bar.
+        """
         idx = data.index
+
         # Basic time fields
         features['hour'] = idx.hour
         features['day_of_week'] = idx.dayofweek
 
-        # Define sessions (all in UTC hours on a naive index)
-        features['in_london_session']    = features['hour'].between(7, 15)   # 07:00–16:00
-        features['in_new_york_session']  = features['hour'].between(12, 20)  # 12:00–21:00
-        features['in_asian_session']     = (features['hour'] >= 23) | (features['hour'] < 8)
-        features['is_optimal_time']      = False  # placeholder flag for kill-zones or similar
+        # Sessions
+        features['in_london_session']   = features['hour'].between(7, 15)
+        features['in_new_york_session'] = features['hour'].between(12, 20)
+        features['in_asian_session']    = (features['hour'] >= 23) | (features['hour'] < 8)
+        features['is_optimal_time']     = False  # placeholder
 
-        # Price-based time features
-        features['hour_high']  = data.groupby(idx.hour)['high'].transform('max')
-        features['hour_low']   = data.groupby(idx.hour)['low'].transform('min')
+        # 1️⃣ Hourly rolling high & low (no future data)
+        features['hour_high'] = (
+            data['high']
+            .rolling('1H', closed='both')  # 1-hour window up to current timestamp
+            .max()
+            .reindex(idx)
+        )
+        features['hour_low'] = (
+            data['low']
+            .rolling('1H', closed='both')
+            .min()
+            .reindex(idx)
+        )
         features['hour_range'] = features['hour_high'] - features['hour_low']
 
-        # Session-range placeholders
-        for session in ('london', 'ny', 'asia'):
-            features[f'{session}_range'] = 0.0
+        # 2️⃣ Daily rolling range up to current timestamp
+        daily_high = (
+            data['high']
+            .rolling('1D', closed='both')  # 1-day window up to current timestamp
+            .max()
+            .reindex(idx)
+        )
+        daily_low = (
+            data['low']
+            .rolling('1D', closed='both')
+            .min()
+            .reindex(idx)
+        )
+        daily_range = daily_high - daily_low
 
-        # Compute per-day session ranges
-        for session, col in [
-            ('london', 'in_london_session'),
-            ('ny',     'in_new_york_session'),
-            ('asia',   'in_asian_session')
-        ]:
-            mask = features[col]
-            if mask.any():
-                sess = data.loc[mask]
-                dr = sess.groupby(sess.index.date).agg({'high':'max','low':'min'})
-                dr['rng'] = dr['high'] - dr['low']
-                for date, rng in dr['rng'].items():
-                    date_mask = features.index.date == date
-                    features.loc[date_mask, f'{session}_range'] = rng
+        # 3️⃣ Session-specific daily ranges
+        features['london_range']  = daily_range.where(features['in_london_session'],   other=0.0)
+        features['newyork_range'] = daily_range.where(features['in_new_york_session'], other=0.0)
+        features['asia_range']    = daily_range.where(features['in_asian_session'],    other=0.0)
 
         return features
-
-
-
-    
+   
     def _add_pd_array_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
         swing_points = self.market_structure.identify_swing_points(data)
 
