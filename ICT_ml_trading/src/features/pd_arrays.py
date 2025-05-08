@@ -58,79 +58,179 @@ class PriceDeliveryArrays:
             min_order_block_strength: Minimum price movement % to qualify as order block
         """
         self.min_ob_strength = min_order_block_strength
+    def identify_order_blocks(self, df: pd.DataFrame,
+                              swing_points: List[SwingPoint]) -> List[OrderBlock]:
+        """
+        Identify Order Blocks.
 
-    def identify_order_blocks(self, df: pd.DataFrame, swing_points: List[SwingPoint]) -> List[OrderBlock]:
-        order_blocks: List[OrderBlock] = []
+        An order block is defined between a swing high → swing low (bearish OB),
+        or swing low → swing high (bullish OB). We take the bar of the first swing
+        as the block’s origin, and the bar of the next opposite swing as its end.
 
-        # Ensure index is unique to avoid get_loc returning slices
+        Args:
+            df: DataFrame with OHLCV data
+            swing_points: List of SwingPoint objects in chronological order
+
+        Returns:
+            List of OrderBlock objects
+        """
+        obs: List[OrderBlock] = []
+        for i in range(1, len(swing_points)):
+            prev = swing_points[i - 1]
+            curr = swing_points[i]
+            try:
+                prev_pos = df.index.get_loc(prev.index)
+                curr_pos = df.index.get_loc(curr.index)
+            except KeyError:
+                continue
+
+            # Bearish order block: swing high → next swing low
+            if prev.type == 'high' and curr.type == 'low':
+                high = df.iloc[prev_pos]['high']
+                low  = df.iloc[curr_pos]['low']
+                obs.append(OrderBlock(
+                    start_idx=prev_pos,
+                    end_idx=curr_pos,
+                    type='bearish',
+                    high=high,
+                    low=low,
+                    open=df.iloc[prev_pos]['open'],
+                    close=df.iloc[prev_pos]['close'],
+                    mitigation_level=(high + low) / 2,
+                    origin_swing=prev.type
+                ))
+
+            # Bullish order block: swing low → next swing high
+            elif prev.type == 'low' and curr.type == 'high':
+                low  = df.iloc[prev_pos]['low']
+                high = df.iloc[curr_pos]['high']
+                obs.append(OrderBlock(
+                    start_idx=prev_pos,
+                    end_idx=curr_pos,
+                    type='bullish',
+                    high=high,
+                    low=low,
+                    open=df.iloc[prev_pos]['open'],
+                    close=df.iloc[prev_pos]['close'],
+                    mitigation_level=(high + low) / 2,
+                    origin_swing=prev.type
+                ))
+
+        return obs
+    def identify_breaker_blocks(self, df: pd.DataFrame, 
+                           order_blocks: List[OrderBlock],
+                           swing_points: List) -> List[BreakerBlock]:
+        """
+        Identify Breaker Blocks
+        
+        A breaker block forms when:
+        1. Price breaks a swing high/low
+        2. The last order block before the break becomes a breaker
+        
+        Args:
+            df: DataFrame with OHLCV data
+            order_blocks: List of identified order blocks
+            swing_points: List of swing points
+            
+        Returns:
+            List of BreakerBlock objects
+        """
+        breaker_blocks = []
+        
+        # Ensure df index is unique to avoid get_loc duplicates
         if not df.index.is_unique:
             df = df.reset_index(drop=True)
-
-        # Build a clean timestamp-to-row map
+        
+        # Create a mapping from index value to position
         idx_map = {ts: i for i, ts in enumerate(df.index)}
-
-        for prev_sp, curr_sp in zip(swing_points[:-1], swing_points[1:]):
-            try:
-                prev_i = idx_map.get(prev_sp.index, None)
-                curr_i = idx_map.get(curr_sp.index, None)
-
-                if prev_i is None or curr_i is None:
+        
+        # Process each swing point
+        for i in range(1, len(swing_points)):
+            current_swing = swing_points[i]
+            current_idx = current_swing.index
+            current_pos = idx_map.get(current_idx, -1)
+            if current_pos == -1:
+                continue
+            
+            # Check if this swing breaks previous structure
+            for j in range(i):
+                prev_swing = swing_points[j]
+                prev_idx = prev_swing.index  
+                prev_pos = idx_map.get(prev_idx, -1)
+                if prev_pos == -1:
                     continue
-                if curr_i - prev_i < 2:
-                    continue
-
-                segment = df.iloc[prev_i:curr_i + 1]
-                segment_cut = segment.iloc[:-1]
-
-                # Bullish OB: price moves from low → high
-                if prev_sp.type == "low" and curr_sp.type == "high":
-                    reds = segment_cut[segment_cut["close"] < segment_cut["open"]]
-                    if reds.empty:
-                        continue
-
-                    ob_row = reds.iloc[-1]
-                    ob_loc = ob_row.name
-                    move_strength = (curr_sp.price - prev_sp.price) / prev_sp.price
-
-                    if move_strength >= self.min_ob_strength:
-                        order_blocks.append(OrderBlock(
-                            start_idx=ob_loc,
-                            end_idx=ob_loc,
-                            type="bullish",
-                            high=ob_row["high"],
-                            low=ob_row["low"],
-                            open=ob_row["open"],
-                            close=ob_row["close"],
-                            mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
-                            origin_swing="low"
-                        ))
-
-                # Bearish OB: price moves from high → low
-                elif prev_sp.type == "high" and curr_sp.type == "low":
-                    greens = segment_cut[segment_cut["close"] > segment_cut["open"]]
-                    if greens.empty:
-                        continue
-
-                    ob_row = greens.iloc[-1]
-                    ob_loc = ob_row.name
-                    move_strength = (prev_sp.price - curr_sp.price) / prev_sp.price
-
-                    if move_strength >= self.min_ob_strength:
-                        order_blocks.append(OrderBlock(
-                            start_idx=ob_loc,
-                            end_idx=ob_loc,
-                            type="bearish",
-                            high=ob_row["high"],
-                            low=ob_row["low"],
-                            open=ob_row["open"],
-                            close=ob_row["close"],
-                            mitigation_level=(ob_row["open"] + ob_row["close"]) / 2,
-                            origin_swing="high"
-                        ))
-            except Exception as e:
-                print(f"[ERROR: OB loop] {e} for ob.start_idx={prev_sp.index}")
-
-        return order_blocks
+                
+                # Bullish breaker: Break above previous high
+                if current_swing.type == 'high' and prev_swing.type == 'high' and \
+                   current_swing.price > prev_swing.price:
+                    
+                    # Find order blocks between these swings - USING POSITIONS
+                    relevant_obs = []
+                    for ob in order_blocks:
+                        # Convert timestamp start_idx to position if needed
+                        ob_pos = ob.start_idx
+                        if isinstance(ob_pos, pd.Timestamp):
+                            ob_pos = idx_map.get(ob_pos, -1)
+                            if ob_pos == -1:
+                                continue
+                        
+                        # Compare integer positions
+                        if ob_pos > prev_pos and ob_pos < current_pos:
+                            relevant_obs.append(ob)
+                    
+                    if relevant_obs:
+                        # Last bearish OB becomes bullish breaker
+                        bearish_obs = [ob for ob in relevant_obs if ob.type == 'bearish']
+                        if bearish_obs:
+                            last_bearish_ob = bearish_obs[-1]
+                            # Ensure the broken_idx is an integer position
+                            broken_pos = current_pos
+                            breaker_blocks.append(BreakerBlock(
+                                start_idx=last_bearish_ob.start_idx,
+                                end_idx=last_bearish_ob.end_idx,
+                                type='bullish',
+                                high=last_bearish_ob.high,
+                                low=last_bearish_ob.low,
+                                origin_type='resistance',
+                                broken_idx=broken_pos
+                            ))
+                
+                # Bearish breaker: Break below previous low
+                elif current_swing.type == 'low' and prev_swing.type == 'low' and \
+                     current_swing.price < prev_swing.price:
+                    
+                    # Find order blocks between these swings - USING POSITIONS
+                    relevant_obs = []
+                    for ob in order_blocks:
+                        # Convert timestamp start_idx to position if needed
+                        ob_pos = ob.start_idx
+                        if isinstance(ob_pos, pd.Timestamp):
+                            ob_pos = idx_map.get(ob_pos, -1)
+                            if ob_pos == -1:
+                                continue
+                        
+                        # Compare integer positions
+                        if ob_pos > prev_pos and ob_pos < current_pos:
+                            relevant_obs.append(ob)
+                    
+                    if relevant_obs:
+                        # Last bullish OB becomes bearish breaker
+                        bullish_obs = [ob for ob in relevant_obs if ob.type == 'bullish']
+                        if bullish_obs:
+                            last_bullish_ob = bullish_obs[-1]
+                            # Ensure the broken_idx is an integer position
+                            broken_pos = current_pos
+                            breaker_blocks.append(BreakerBlock(
+                                start_idx=last_bullish_ob.start_idx,
+                                end_idx=last_bullish_ob.end_idx,
+                                type='bearish',
+                                high=last_bullish_ob.high,
+                                low=last_bullish_ob.low,
+                                origin_type='support',
+                                broken_idx=broken_pos
+                            ))
+        
+        return breaker_blocks
 
 
    
@@ -203,7 +303,7 @@ class PriceDeliveryArrays:
     
     def identify_breaker_blocks(self, df: pd.DataFrame, 
                                order_blocks: List[OrderBlock],
-                               swing_points: List) -> List[BreakerBlock]:
+                               swing_points: List[SwingPoint]) -> List[BreakerBlock]:
         """
         Identify Breaker Blocks
         
@@ -221,62 +321,81 @@ class PriceDeliveryArrays:
         """
         breaker_blocks = []
         
-        for i in range(1, len(swing_points)):
-            current_swing = swing_points[i]
-            
-            # Check if this swing breaks previous structure
-            for j in range(i):
-                prev_swing = swing_points[j]
+        # First separate bullish and bearish order blocks
+        bullish_order_blocks = [ob for ob in order_blocks if ob.type == 'bullish']
+        bearish_order_blocks = [ob for ob in order_blocks if ob.type == 'bearish']
+        
+        # Create a mapping from timestamps to positions for reliable lookups
+        ts_to_pos = {ts: idx for idx, ts in enumerate(df.index)}
+        
+        # Process bullish breakers
+        bullish_breakers = []
+        for ob in bearish_order_blocks:
+            start_idx = ob.start_idx
+            if isinstance(start_idx, pd.Timestamp):
+                start_pos = ts_to_pos.get(start_idx, -1)
+            else:
+                start_pos = start_idx
+            if start_pos == -1:
+                continue
                 
-                # Bullish breaker: Break above previous high
-                if current_swing.type == 'high' and prev_swing.type == 'high' and \
-                   current_swing.price > prev_swing.price:
+            for bulls in bullish_order_blocks:
+                bulls_idx = bulls.start_idx
+                if isinstance(bulls_idx, pd.Timestamp):
+                    bulls_pos = ts_to_pos.get(bulls_idx, -1)
+                else:
+                    bulls_pos = bulls_idx
+                if bulls_pos == -1:
+                    continue
                     
-                    # Find order blocks between these swings
-                    relevant_obs = [ob for ob in order_blocks 
-                                  if ob.start_idx > df.index.get_loc(prev_swing.index) and 
-                                     ob.start_idx < df.index.get_loc(current_swing.index)]
-                    
-                    if relevant_obs:
-                        # Last bearish OB becomes bullish breaker
-                        bearish_obs = [ob for ob in relevant_obs if ob.type == 'bearish']
-                        if bearish_obs:
-                            last_bearish_ob = bearish_obs[-1]
-                            breaker_blocks.append(BreakerBlock(
-                                start_idx=last_bearish_ob.start_idx,
-                                end_idx=last_bearish_ob.end_idx,
-                                type='bullish',
-                                high=last_bearish_ob.high,
-                                low=last_bearish_ob.low,
-                                origin_type='resistance',
-                                broken_idx=df.index.get_loc(current_swing.index)
-                            ))
+                if start_pos < bulls_pos:
+                    if bulls.high >= ob.high:
+                        breaker_blocks.append(BreakerBlock(
+                            start_idx=bulls.start_idx,
+                            end_idx=bulls.end_idx,
+                            type='bullish',
+                            high=bulls.high,
+                            low=bulls.low,
+                            origin_type='resistance',
+                            broken_idx=bulls_pos
+                        ))
+                        bullish_breakers.append(bulls)
+        
+        # Process bearish breakers
+        bearish_breakers = []
+        for ob in bullish_order_blocks:
+            start_idx = ob.start_idx
+            if isinstance(start_idx, pd.Timestamp):
+                start_pos = ts_to_pos.get(start_idx, -1)
+            else:
+                start_pos = start_idx
+            if start_pos == -1:
+                continue
                 
-                # Bearish breaker: Break below previous low
-                elif current_swing.type == 'low' and prev_swing.type == 'low' and \
-                     current_swing.price < prev_swing.price:
+            for bears in bearish_order_blocks:
+                bears_idx = bears.start_idx
+                if isinstance(bears_idx, pd.Timestamp):
+                    bears_pos = ts_to_pos.get(bears_idx, -1)
+                else:
+                    bears_pos = bears_idx
+                if bears_pos == -1:
+                    continue
                     
-                    # Find order blocks between these swings
-                    relevant_obs = [ob for ob in order_blocks 
-                                  if ob.start_idx > df.index.get_loc(prev_swing.index) and 
-                                     ob.start_idx < df.index.get_loc(current_swing.index)]
-                    
-                    if relevant_obs:
-                        # Last bullish OB becomes bearish breaker
-                        bullish_obs = [ob for ob in relevant_obs if ob.type == 'bullish']
-                        if bullish_obs:
-                            last_bullish_ob = bullish_obs[-1]
-                            breaker_blocks.append(BreakerBlock(
-                                start_idx=last_bullish_ob.start_idx,
-                                end_idx=last_bullish_ob.end_idx,
-                                type='bearish',
-                                high=last_bullish_ob.high,
-                                low=last_bullish_ob.low,
-                                origin_type='support',
-                                broken_idx=df.index.get_loc(current_swing.index)
-                            ))
+                if start_pos < bears_pos:
+                    if bears.low <= ob.low:
+                        breaker_blocks.append(BreakerBlock(
+                            start_idx=bears.start_idx,
+                            end_idx=bears.end_idx,
+                            type='bearish',
+                            high=bears.high,
+                            low=bears.low,
+                            origin_type='support',
+                            broken_idx=bears_pos
+                        ))
+                        bearish_breakers.append(bears)
         
         return breaker_blocks
+
     
     def identify_mitigation_blocks(self, df: pd.DataFrame, 
                                  order_blocks: List[OrderBlock]) -> List[Dict]:

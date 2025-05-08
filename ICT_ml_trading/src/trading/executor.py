@@ -80,3 +80,20 @@ class Executor:
             })
 
         return pd.DataFrame(trades)
+class OandaExecutor:
+    def __init__(self, token, account):
+        self.client = API(access_token=token, environment=config.OANDA_ENV)
+        self.account = account
+
+    def send_order(self, instrument, units, tp_price=None, sl_price=None):
+        data = {
+            "order": {
+                "instrument": instrument,
+                "units": str(units),
+                "type": "MARKET",
+                **({"takeProfitOnFill": {"price": tp_price}} if tp_price else {}),
+                **({"stopLossOnFill": {"price": sl_price}} if sl_price else {})
+            }
+        }
+        r = OrderCreate(accountID=self.account, data=data)
+        return self.client.request(r)
