@@ -95,112 +95,130 @@ class LiquidityAnalyzer:
         return liquidity_levels
 
     
-    def identify_liquidity_pools(self, 
-                               liquidity_levels: List[LiquidityLevel]) -> List[LiquidityPool]:
+    def identify_liquidity_pools(self,
+                                 liquidity_levels: List[LiquidityLevel],
+                                 cutoff_pos: Optional[int] = None) -> List[LiquidityPool]:
         """
-        Group nearby liquidity levels into pools
-        
+        Group nearby liquidity levels into pools (backward-looking).
+
+        Only levels observed at or before `cutoff_pos` are considered,
+        so at bar t you never include future levels in your pools.
         Args:
-            liquidity_levels: List of identified liquidity levels
-            
+            liquidity_levels: List of all liquidity levels detected so far
+            cutoff_pos: maximum integer index to include (None => include all)
         Returns:
             List of LiquidityPool objects
         """
-        pools = []
-        bsl_levels = [lvl for lvl in liquidity_levels if lvl.type == 'BSL']
-        ssl_levels = [lvl for lvl in liquidity_levels if lvl.type == 'SSL']
-        
-        # Group BSL levels
+        pools: List[LiquidityPool] = []
+
+        # 1) Filter out any levels beyond the current bar
+        if cutoff_pos is not None:
+            levels = [
+                lvl for lvl in liquidity_levels
+                if getattr(lvl, "start_idx", None) is None
+                or lvl.start_idx <= cutoff_pos
+            ]
+        else:
+            levels = liquidity_levels
+
+        # 2) Group BSL (broken support levels)
+        bsl_levels = [lvl for lvl in levels if lvl.type == "BSL"]
         bsl_levels.sort(key=lambda x: x.price)
-        current_pool_levels = []
-        
-        for level in bsl_levels:
-            if not current_pool_levels:
-                current_pool_levels.append(level)
+        current_pool: List[LiquidityLevel] = []
+
+        for lvl in bsl_levels:
+            if not current_pool:
+                current_pool.append(lvl)
+                continue
+
+            pool_low = min(l.price for l in current_pool)
+            if (lvl.price - pool_low) / pool_low <= self.pool_threshold:
+                current_pool.append(lvl)
             else:
-                # Check if close enough to current pool
-                pool_high = max(lvl.price for lvl in current_pool_levels)
-                pool_low = min(lvl.price for lvl in current_pool_levels)
-                
-                if (level.price - pool_low) / pool_low <= self.pool_threshold:
-                    current_pool_levels.append(level)
-                else:
-                    # Create pool from current levels
-                    if len(current_pool_levels) >= 2:
-                        pool_high = max(lvl.price for lvl in current_pool_levels)
-                        pool_low = min(lvl.price for lvl in current_pool_levels)
-                        pools.append(LiquidityPool(
-                            levels=current_pool_levels.copy(),
-                            type='BSL',
-                            high=pool_high,
-                            low=pool_low,
-                            center=(pool_high + pool_low) / 2,
-                            swept=all(lvl.swept for lvl in current_pool_levels),
-                            swept_index=max((lvl.swept_index for lvl in current_pool_levels 
-                                           if lvl.swept_index), default=None)
-                        ))
-                    current_pool_levels = [level]
-        
-        # Create final BSL pool if needed
-        if len(current_pool_levels) >= 2:
-            pool_high = max(lvl.price for lvl in current_pool_levels)
-            pool_low = min(lvl.price for lvl in current_pool_levels)
+                if len(current_pool) >= 2:
+                    high = max(l.price for l in current_pool)
+                    low  = pool_low
+                    pools.append(LiquidityPool(
+                        levels=current_pool.copy(),
+                        type="BSL",
+                        high=high,
+                        low=low,
+                        center=(high + low) / 2,
+                        swept=all(l.swept for l in current_pool),
+                        swept_index=max(
+                            (l.swept_index for l in current_pool if l.swept_index),
+                            default=None
+                        )
+                    ))
+                current_pool = [lvl]
+
+        # Final BSL pool
+        if len(current_pool) >= 2:
+            high = max(l.price for l in current_pool)
+            low  = min(l.price for l in current_pool)
             pools.append(LiquidityPool(
-                levels=current_pool_levels.copy(),
-                type='BSL',
-                high=pool_high,
-                low=pool_low,
-                center=(pool_high + pool_low) / 2,
-                swept=all(lvl.swept for lvl in current_pool_levels),
-                swept_index=max((lvl.swept_index for lvl in current_pool_levels 
-                               if lvl.swept_index), default=None)
+                levels=current_pool.copy(),
+                type="BSL",
+                high=high,
+                low=low,
+                center=(high + low) / 2,
+                swept=all(l.swept for l in current_pool),
+                swept_index=max(
+                    (l.swept_index for l in current_pool if l.swept_index),
+                    default=None
+                )
             ))
-        
-        # Group SSL levels (similar process)
+
+        # 3) Group SSL (broken support levels, reverse order)
+        ssl_levels = [lvl for lvl in levels if lvl.type == "SSL"]
         ssl_levels.sort(key=lambda x: x.price, reverse=True)
-        current_pool_levels = []
-        
-        for level in ssl_levels:
-            if not current_pool_levels:
-                current_pool_levels.append(level)
+        current_pool = []
+
+        for lvl in ssl_levels:
+            if not current_pool:
+                current_pool.append(lvl)
+                continue
+
+            pool_high = max(l.price for l in current_pool)
+            if (pool_high - lvl.price) / lvl.price <= self.pool_threshold:
+                current_pool.append(lvl)
             else:
-                pool_high = max(lvl.price for lvl in current_pool_levels)
-                pool_low = min(lvl.price for lvl in current_pool_levels)
-                
-                if (pool_high - level.price) / level.price <= self.pool_threshold:
-                    current_pool_levels.append(level)
-                else:
-                    if len(current_pool_levels) >= 2:
-                        pool_high = max(lvl.price for lvl in current_pool_levels)
-                        pool_low = min(lvl.price for lvl in current_pool_levels)
-                        pools.append(LiquidityPool(
-                            levels=current_pool_levels.copy(),
-                            type='SSL',
-                            high=pool_high,
-                            low=pool_low,
-                            center=(pool_high + pool_low) / 2,
-                            swept=all(lvl.swept for lvl in current_pool_levels),
-                            swept_index=max((lvl.swept_index for lvl in current_pool_levels 
-                                           if lvl.swept_index), default=None)
-                        ))
-                    current_pool_levels = [level]
-        
-        # Create final SSL pool if needed
-        if len(current_pool_levels) >= 2:
-            pool_high = max(lvl.price for lvl in current_pool_levels)
-            pool_low = min(lvl.price for lvl in current_pool_levels)
+                if len(current_pool) >= 2:
+                    high = pool_high
+                    low  = min(l.price for l in current_pool)
+                    pools.append(LiquidityPool(
+                        levels=current_pool.copy(),
+                        type="SSL",
+                        high=high,
+                        low=low,
+                        center=(high + low) / 2,
+                        swept=all(l.swept for l in current_pool),
+                        swept_index=max(
+                            (l.swept_index for l in current_pool if l.swept_index),
+                            default=None
+                        )
+                    ))
+                current_pool = [lvl]
+
+        # Final SSL pool
+        if len(current_pool) >= 2:
+            high = max(l.price for l in current_pool)
+            low  = min(l.price for l in current_pool)
             pools.append(LiquidityPool(
-                levels=current_pool_levels.copy(),
-                type='SSL',
-                high=pool_high,
-                low=pool_low,
-                center=(pool_high + pool_low) / 2,
-                swept=all(lvl.swept for lvl in current_pool_levels),
-                swept_index=max((lvl.swept_index for lvl in current_pool_levels 
-                               if lvl.swept_index), default=None)
+                levels=current_pool.copy(),
+                type="SSL",
+                high=high,
+                low=low,
+                center=(high + low) / 2,
+                swept=all(l.swept for l in current_pool),
+                swept_index=max(
+                    (l.swept_index for l in current_pool if l.swept_index),
+                    default=None
+                )
             ))
-        
+
         return pools
+
     
     def identify_stop_runs(self, df: pd.DataFrame, liquidity_levels: List[LiquidityLevel], reversal_threshold: float = 0.002) -> List[StopRun]:
         stop_runs = []

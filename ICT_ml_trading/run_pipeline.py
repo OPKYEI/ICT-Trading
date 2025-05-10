@@ -119,7 +119,7 @@ def evaluate_and_save_metrics(name, model, X_test, y_test, out_dir):
 def main():
     # STEP 1: Load Data
     print("\n✅ STEP 1: Loading data")
-    csv_file = PROJECT_ROOT / "data" / "XAUUSD=X_60m.csv"
+    csv_file = PROJECT_ROOT / "data" / "USDCHF=X_60m.csv"
     csv_name = csv_file.stem
     symbol = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
@@ -303,7 +303,7 @@ def main():
     else:
         print("✅ Shuffled-label accuracy collapsed → minimal leakage")
         
-    print("n\ Step 6: Label-shuffle test complete")
+    print(" ✅ Step 6: Label-shuffle test complete")
     
     # ────────────────────────────────────────────────────────
     # STEP 7: Evaluate on never-touch hold-out
