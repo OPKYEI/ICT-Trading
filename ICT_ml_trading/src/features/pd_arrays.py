@@ -410,56 +410,54 @@ class PriceDeliveryArrays:
 
         return mitigation_blocks
     
-    def identify_rejection_blocks(self, df: pd.DataFrame, 
-                                swing_points: List) -> List[Dict]:
+    def identify_rejection_blocks(self,
+                                  df: pd.DataFrame,
+                                  swing_points: List[SwingPoint]) -> List[Dict]:
         """
-        Identify Rejection Blocks
-        
-        A rejection block forms when price creates a wick (rejection)
-        at a significant level, typically at swing points
-        
-        Args:
-            df: DataFrame with OHLCV data
-            swing_points: List of swing points
-            
-        Returns:
-            List of rejection block dictionaries
+        Identify Rejection Blocks (purely at each swing bar, backward-looking)
+
+        A rejection block is when the wick at a swing bar is significantly larger
+        than its body. Only data up through that bar is used.
         """
-        rejection_blocks = []
-        
-        for swing in swing_points:
-            swing_idx = df.index.get_loc(swing.index)
-            candle = df.iloc[swing_idx]
-            
-            # Calculate wick sizes
-            if swing.type == 'high':
-                upper_wick = candle['high'] - max(candle['open'], candle['close'])
-                body_size = abs(candle['close'] - candle['open'])
-                
-                # Significant upper wick indicates rejection
-                if upper_wick > body_size * 1.5:  # Wick is 1.5x larger than body
+        rejection_blocks: List[Dict] = []
+
+        # Ensure unique integer positions
+        if not df.index.is_unique:
+            df = df.reset_index(drop=True)
+        idx_map = {ts: i for i, ts in enumerate(df.index)}
+
+        for sp in swing_points:
+            pos = idx_map.get(sp.index)
+            if pos is None:
+                continue
+            candle = df.iloc[pos]
+
+            # Compute body and wick sizes
+            open_, close = candle['open'], candle['close']
+            body_size = abs(close - open_)
+
+            if sp.type == 'high':
+                upper_wick = candle['high'] - max(open_, close)
+                if upper_wick > 1.5 * body_size:
                     rejection_blocks.append({
-                        'index': swing_idx,
+                        'index': pos,
                         'type': 'bearish',
-                        'rejection_price': candle['high'],
-                        'body_high': max(candle['open'], candle['close']),
-                        'body_low': min(candle['open'], candle['close']),
-                        'wick_size': upper_wick
+                        'rejection_price': float(candle['high']),
+                        'body_high': max(open_, close),
+                        'body_low': min(open_, close),
+                        'wick_size': float(upper_wick)
                     })
-            
-            elif swing.type == 'low':
-                lower_wick = min(candle['open'], candle['close']) - candle['low']
-                body_size = abs(candle['close'] - candle['open'])
-                
-                # Significant lower wick indicates rejection
-                if lower_wick > body_size * 1.5:  # Wick is 1.5x larger than body
+
+            elif sp.type == 'low':
+                lower_wick = min(open_, close) - candle['low']
+                if lower_wick > 1.5 * body_size:
                     rejection_blocks.append({
-                        'index': swing_idx,
+                        'index': pos,
                         'type': 'bullish',
-                        'rejection_price': candle['low'],
-                        'body_high': max(candle['open'], candle['close']),
-                        'body_low': min(candle['open'], candle['close']),
-                        'wick_size': lower_wick
+                        'rejection_price': float(candle['low']),
+                        'body_high': max(open_, close),
+                        'body_low': min(open_, close),
+                        'wick_size': float(lower_wick)
                     })
-        
+
         return rejection_blocks
