@@ -61,30 +61,32 @@ class PriceDeliveryArrays:
     def identify_order_blocks(self, df: pd.DataFrame,
                               swing_points: List[SwingPoint]) -> List[OrderBlock]:
         """
-        Identify Order Blocks.
+        Identify Order Blocks in a backward‐looking manner.
 
-        An order block is defined between a swing high → swing low (bearish OB),
-        or swing low → swing high (bullish OB). We take the bar of the first swing
-        as the block’s origin, and the bar of the next opposite swing as its end.
-
-        Args:
-            df: DataFrame with OHLCV data
-            swing_points: List of SwingPoint objects in chronological order
-
-        Returns:
-            List of OrderBlock objects
+        At bar t, only swings up to t are considered. Returns the list
+        of all order blocks (start/end indices are absolute positions).
         """
         obs: List[OrderBlock] = []
+        # Map index → integer position
+        idx_map = {ts: i for i, ts in enumerate(df.index)}
+        # Only consider swing points up to the last available index
+        max_pos = len(df) - 1
+
+        # Walk through swing_points sequentially
         for i in range(1, len(swing_points)):
-            prev = swing_points[i - 1]
-            curr = swing_points[i]
+            prev, curr = swing_points[i - 1], swing_points[i]
             try:
-                prev_pos = df.index.get_loc(prev.index)
-                curr_pos = df.index.get_loc(curr.index)
+                prev_pos = idx_map[prev.index]
+                curr_pos = idx_map[curr.index]
             except KeyError:
+                # swing outside our df index—skip
                 continue
 
-            # Bearish order block: swing high → next swing low
+            # Ensure we never use swings beyond current df length
+            if prev_pos > max_pos or curr_pos > max_pos:
+                continue
+
+            # Bearish OB: swing high → swing low
             if prev.type == 'high' and curr.type == 'low':
                 high = df.iloc[prev_pos]['high']
                 low  = df.iloc[curr_pos]['low']
@@ -100,7 +102,7 @@ class PriceDeliveryArrays:
                     origin_swing=prev.type
                 ))
 
-            # Bullish order block: swing low → next swing high
+            # Bullish OB: swing low → swing high
             elif prev.type == 'low' and curr.type == 'high':
                 low  = df.iloc[prev_pos]['low']
                 high = df.iloc[curr_pos]['high']
@@ -117,6 +119,7 @@ class PriceDeliveryArrays:
                 ))
 
         return obs
+
     def identify_breaker_blocks(self, df: pd.DataFrame, 
                            order_blocks: List[OrderBlock],
                            swing_points: List) -> List[BreakerBlock]:
