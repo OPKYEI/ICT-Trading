@@ -208,68 +208,54 @@ class PriceDeliveryArrays:
     
     def identify_fvg(self, df: pd.DataFrame) -> List[FairValueGap]:
         """
-        Identify Fair Value Gaps (FVG) / Imbalances
-        
-        FVG occurs when there's a gap between:
-        - Candle 1 high and Candle 3 low (bearish FVG)
-        - Candle 1 low and Candle 3 high (bullish FVG)
-        With Candle 2 showing strong directional movement
-        
-        Args:
-            df: DataFrame with OHLCV data
-            
-        Returns:
-            List of FairValueGap objects
+        Identify Fair Value Gaps (FVG) / Imbalances in a backward‐looking way.
+
+        An FVG is detected solely from candles i-2, i-1, i:
+          - Bullish gap: candle3.low > candle1.high and
+            candle2 is strongly bullish.
+          - Bearish gap: candle3.high < candle1.low and
+            candle2 is strongly bearish.
+        No data beyond candle i is accessed here; filled=False by default.
         """
-        fvgs = []
-        
+        fvgs: List[FairValueGap] = []
+
         for i in range(2, len(df)):
-            candle1 = df.iloc[i-2]
-            candle2 = df.iloc[i-1]
-            candle3 = df.iloc[i]
-            
-            # Bullish FVG: Gap up
-            if candle3['low'] > candle1['high']:
-                # Verify candle 2 is bullish and has momentum
-                if candle2['close'] > candle2['open'] and \
-                   (candle2['close'] - candle2['open']) > abs(candle1['close'] - candle1['open']):
-                    fvgs.append(FairValueGap(
-                        start_idx=i-2,
-                        end_idx=i,
-                        type='bullish',
-                        high=candle3['low'],
-                        low=candle1['high'],
-                        filled=False
-                    ))
-            
-            # Bearish FVG: Gap down
-            elif candle3['high'] < candle1['low']:
-                # Verify candle 2 is bearish and has momentum
-                if candle2['close'] < candle2['open'] and \
-                   (candle2['open'] - candle2['close']) > abs(candle1['close'] - candle1['open']):
-                    fvgs.append(FairValueGap(
-                        start_idx=i-2,
-                        end_idx=i,
-                        type='bearish',
-                        high=candle1['low'],
-                        low=candle3['high'],
-                        filled=False
-                    ))
-        
-        # Check if FVGs have been filled
-        '''for fvg in fvgs:
-            for i in range(fvg.end_idx + 1, len(df)):
-                candle = df.iloc[i]
-                if fvg.type == 'bullish' and candle['low'] <= fvg.high:
-                    fvg.filled = True
-                    fvg.filled_idx = i
-                    break
-                elif fvg.type == 'bearish' and candle['high'] >= fvg.low:
-                    fvg.filled = True
-                    fvg.filled_idx = i
-                    break '''
-        
+            c1 = df.iloc[i - 2]
+            c2 = df.iloc[i - 1]
+            c3 = df.iloc[i]
+
+            # Bullish FVG: Gap up with momentum
+            if (
+                c3['low'] > c1['high']
+                and c2['close'] > c2['open']
+                and (c2['close'] - c2['open']) > abs(c1['close'] - c1['open'])
+            ):
+                fvgs.append(FairValueGap(
+                    start_idx=i - 2,
+                    end_idx=i,
+                    type='bullish',
+                    high=c3['low'],
+                    low=c1['high'],
+                    filled=False
+                ))
+
+            # Bearish FVG: Gap down with momentum
+            elif (
+                c3['high'] < c1['low']
+                and c2['close'] < c2['open']
+                and (c2['open'] - c2['close']) > abs(c1['close'] - c1['open'])
+            ):
+                fvgs.append(FairValueGap(
+                    start_idx=i - 2,
+                    end_idx=i,
+                    type='bearish',
+                    high=c1['low'],
+                    low=c3['high'],
+                    filled=False
+                ))
+
         return fvgs
+
     
     def identify_breaker_blocks(self, df: pd.DataFrame, 
                                order_blocks: List[OrderBlock],
