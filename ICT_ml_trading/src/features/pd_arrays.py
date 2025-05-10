@@ -397,52 +397,61 @@ class PriceDeliveryArrays:
         return breaker_blocks
 
     
-    def identify_mitigation_blocks(self, df: pd.DataFrame, 
-                                 order_blocks: List[OrderBlock]) -> List[Dict]:
+    def identify_mitigation_blocks(self,
+                                   df: pd.DataFrame,
+                                   order_blocks: List[OrderBlock]) -> List[Dict]:
         """
-        Identify Mitigation Blocks
-        
-        A mitigation block occurs when price returns to an order block
-        that has been "left behind" after a strong move
-        
-        Args:
-            df: DataFrame with OHLCV data
-            order_blocks: List of order blocks
-            
-        Returns:
-            List of mitigation block dictionaries
+        Identify Mitigation Blocks (backward‐looking)
+
+        A mitigation block occurs the first time price returns into the original
+        order-block range, _after_ that block formed.  At each bar t we only
+        consider candles at or before t.
         """
-        mitigation_blocks = []
-        '''
-        for ob in order_blocks:
-            # Check if price has returned to mitigate this order block
-            for i in range(ob.end_idx + 1, len(df)):
-                candle = df.iloc[i]
-                
+        # Map timestamps → positions for fast lookup
+        idx_map = {ts: i for i, ts in enumerate(df.index)}
+        # Track which OBs are still unmitigated
+        unmitigated = {ob: True for ob in order_blocks}
+        mitigation_blocks: List[Dict] = []
+
+        # Walk forward through the entire series
+        for t, (ts, candle) in enumerate(df.iterrows()):
+            # Check every still-open order block
+            for ob in order_blocks:
+                if not unmitigated.get(ob):
+                    continue
+
+                # Determine the integer position of this OB’s end
+                ob_pos = ob.end_idx if isinstance(ob.end_idx, int) \
+                         else idx_map.get(ob.end_idx, None)
+                if ob_pos is None or t <= ob_pos:
+                    # either we haven't reached the block’s end yet,
+                    # or no valid pos → skip
+                    continue
+
+                # Bullish OB: price must dip down into the block’s high→low
                 if ob.type == 'bullish':
-                    # Price returned to bullish OB from above
                     if candle['low'] <= ob.high and candle['low'] >= ob.low:
                         mitigation_blocks.append({
                             'order_block_idx': ob.start_idx,
-                            'mitigation_idx': i,
+                            'mitigation_idx': t,
                             'type': 'bullish',
-                            'mitigation_price': candle['low'],
+                            'mitigation_price': float(candle['low']),
                             'original_ob': ob
                         })
-                        break
-                
+                        unmitigated[ob] = False
+
+                # Bearish OB: price must rally up into the block’s low→high
                 elif ob.type == 'bearish':
-                    # Price returned to bearish OB from below
                     if candle['high'] >= ob.low and candle['high'] <= ob.high:
                         mitigation_blocks.append({
                             'order_block_idx': ob.start_idx,
-                            'mitigation_idx': i,
+                            'mitigation_idx': t,
                             'type': 'bearish',
-                            'mitigation_price': candle['high'],
+                            'mitigation_price': float(candle['high']),
                             'original_ob': ob
                         })
-                        break'''
-        
+                        unmitigated[ob] = False
+
         return mitigation_blocks
     
     def identify_rejection_blocks(self, df: pd.DataFrame, 
