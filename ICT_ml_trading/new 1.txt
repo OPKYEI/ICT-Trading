@@ -1,0 +1,884 @@
+PS C:\Users\MELODY\Documents\Forex\ICT\ICT_ml_trading> python run_pipeline.py
+
+✅ STEP 1: Loading data
+Loaded data 18504 rows from 2020-01-01 00:00:00 to 2025-12-04 23:00:00
+✅ STEP 1 complete: Data loaded
+
+✅ STEP 2: Creating hold-out and validation splits
+Held out 1850 rows: 2024-10-10 22:00:00 → 2025-12-04 23:00:00
+Train: 13323, Validation: 3331
+
+✅ STEP 3: Computing features/targets & building Pipeline
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+Aligned train samples: 13223, test samples: 3289
+✅ STEP 3 complete: Pipeline (with imputer) ready
+
+✅ STEP 4: Nested TimeSeriesSplit CV training
+
+📈 Nested CV for rf
+TRAIN: 2020-01-04 08:00:00 → 2020-08-11 06:00:00,  TEST: 2020-08-12 08:00:00 → 2021-04-08 02:00:00
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+✅ Fold 1 test accuracy: 0.9864
+TRAIN: 2020-01-04 08:00:00 → 2021-04-07 01:00:00,  TEST: 2021-04-08 03:00:00 → 2021-12-03 21:00:00
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+✅ Fold 2 test accuracy: 0.9887
+TRAIN: 2020-01-04 08:00:00 → 2021-12-02 20:00:00,  TEST: 2021-12-03 22:00:00 → 2022-07-11 16:00:00
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+✅ Fold 3 test accuracy: 0.9941
+TRAIN: 2020-01-04 08:00:00 → 2022-07-10 15:00:00,  TEST: 2022-07-11 17:00:00 → 2023-03-07 11:00:00
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+✅ Fold 4 test accuracy: 0.9859
+TRAIN: 2020-01-04 08:00:00 → 2023-03-06 10:00:00,  TEST: 2023-03-07 12:00:00 → 2023-11-03 06:00:00
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+✅ Fold 5 test accuracy: 0.9968
+📊 Average nested CV accuracy: 0.9904
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+📊 rf avg nested accuracy: 0.9904 (folds: [0.9863822060826146, 0.9886518384021789, 0.994098955969133, 0.9859282796187018, 0.9968225147526101])
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+
+======== Metrics for rf ========
+📊 Accuracy: 0.9976
+📊 Precision (PPV): 1.0000
+📊 Recall  (Sensitivity): 0.9932
+📊 Specificity: 1.0000
+📊 F1 Score: 0.9966
+📊 ROC AUC: 1.0000
+📊 Avg Precision (NPV): 0.9998
+🧮 Confusion Matrix: TP=1168, FP=0, TN=2113, FN=8
+✅ rf complete: Test accuracy 0.9976
+✅ Saved trained pipeline 'rf' → C:\Users\MELODY\Documents\Forex\ICT\ICT_ml_trading\checkpoints\NZDUSD=X_60m_rf_pipeline.pkl
+
+✅ STEP 4 complete: Nested CV training & metrics saved
+
+✅ STEP 5: Best model selected -> rf
+🚀 Saved BEST pipeline 'rf' → C:\Users\MELODY\Documents\Forex\ICT\ICT_ml_trading\checkpoints\NZDUSD=X_60m_best_pipeline_rf.pkl
+
+ Step 6🔀: Performing label-shuffle test
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+
+======== Metrics for shuffled ========
+📊 Accuracy: 0.6279
+📊 Precision (PPV): 0.4391
+📊 Recall  (Sensitivity): 0.1471
+📊 Specificity: 0.8954
+📊 F1 Score: 0.2204
+📊 ROC AUC: 0.5609
+📊 Avg Precision (NPV): 0.4028
+🧮 Confusion Matrix: TP=173, FP=221, TN=1892, FN=1003
+⚠️ Shuffled accuracy still high → leakage?
+n\Step 6: Label-shuffle test complete
+
+⏳ STEP 7: Evaluating on hold-out period
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+🔧 Engineering features for NZDUSD
+→ Adding market structure features
+→ Adding time features
+→ Adding PD array features
+→ Adding liquidity features
+→ Adding pattern features
+→ Adding technical indicators
+→ Adding target variable
+→ Cleaning up features
+✅ Feature engineering complete
+
+======== Metrics for holdout ========
+📊 Accuracy: 0.9849
+📊 Precision (PPV): 1.0000
+📊 Recall  (Sensitivity): 0.9640
+📊 Specificity: 1.0000
+📊 F1 Score: 0.9817
+📊 ROC AUC: 0.9997
+📊 Avg Precision (NPV): 0.9992
+🧮 Confusion Matrix: TP=723, FP=0, TN=1038, FN=27
+✅ Hold-out accuracy: 0.9849
+✅ STEP 7 complete: Hold-out accuracy

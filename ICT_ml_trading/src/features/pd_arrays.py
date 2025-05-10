@@ -287,7 +287,7 @@ class PriceDeliveryArrays:
                     ))
         
         # Check if FVGs have been filled
-        for fvg in fvgs:
+        '''for fvg in fvgs:
             for i in range(fvg.end_idx + 1, len(df)):
                 candle = df.iloc[i]
                 if fvg.type == 'bullish' and candle['low'] <= fvg.high:
@@ -297,7 +297,7 @@ class PriceDeliveryArrays:
                 elif fvg.type == 'bearish' and candle['high'] >= fvg.low:
                     fvg.filled = True
                     fvg.filled_idx = i
-                    break
+                    break '''
         
         return fvgs
     
@@ -413,7 +413,7 @@ class PriceDeliveryArrays:
             List of mitigation block dictionaries
         """
         mitigation_blocks = []
-        
+        '''
         for ob in order_blocks:
             # Check if price has returned to mitigate this order block
             for i in range(ob.end_idx + 1, len(df)):
@@ -441,7 +441,7 @@ class PriceDeliveryArrays:
                             'mitigation_price': candle['high'],
                             'original_ob': ob
                         })
-                        break
+                        break'''
         
         return mitigation_blocks
     

@@ -63,3 +63,4 @@ data/models/
 # Secret config
 *.secret
 secrets.yaml
+data/

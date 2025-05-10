@@ -12,7 +12,7 @@ from .liquidity import LiquidityAnalyzer
 from .time_features import TimeFeatures
 from .patterns import PatternRecognition
 from .intermarket import IntermarketAnalysis
-
+from sklearn.base import BaseEstimator, TransformerMixin
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -79,7 +79,7 @@ class ICTFeatureEngineer:
             'end_date': data.index[-1],
             'total_bars': len(data)
         }
-
+        '''
         if self.feature_config['market_structure']:
             print("→ Adding market structure features")
             features = self._add_market_structure_features(data, features)
@@ -98,7 +98,7 @@ class ICTFeatureEngineer:
 
         if self.feature_config['patterns']:
             print("→ Adding pattern features")
-            features = self._add_pattern_features(data, features)
+            features = self._add_pattern_features(data, features)'''
 
         if self.feature_config['intermarket'] and additional_data:
             print("→ Adding intermarket features")
@@ -489,28 +489,68 @@ class ICTFeatureEngineer:
             features[f'mae_{period}'] = (data['close'] - features[f'future_low_{period}']) / data['close']
         
         return features
-    
-    def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
-        """Clean up features: handle NaN, encode categoricals, scale if needed"""
-        # Handle categorical variables
-        categorical_columns = features.select_dtypes(include=['object']).columns
-        for col in categorical_columns:
+    #FUNCTIONAL BEFORE ATTEMPTING ALL CHANGES FOR LEAKAGE
+    '''def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean up features:
+          1) Encode categoricals
+          2) Forward-fill only non-target features
+          3) Drop rows where any future_ target is NaN
+          4) Remove infinities and any remaining NaNs
+        """
+        # 1) Handle categorical variables
+        cat_cols = features.select_dtypes(include=['object']).columns
+        for col in cat_cols:
             features[f'{col}_encoded'] = pd.factorize(features[col])[0]
-        
-        # Drop original categorical columns
-        features = features.drop(columns=categorical_columns)
-        
-        # Handle missing values - ONLY use forward fill to avoid leakage
-        features = features.fillna(method='ffill')
-        
-        # Drop rows with remaining NaNs (typically at the beginning)
-        features = features.dropna()
-        
-        # Remove infinite values
-        features = features.replace([np.inf, -np.inf], np.nan).dropna()
-        
-        return features
-    
+        features = features.drop(columns=cat_cols)
+
+        # 2) Separate targets vs. features
+        target_cols = [c for c in features.columns if c.startswith("future_")]
+        feat_cols   = [c for c in features.columns if c not in target_cols]
+
+        # Forward-fill only the non-target features
+        feats = features[feat_cols].fillna(method='ffill')
+
+        # 3) Drop rows where any target is NaN
+        targets = features[target_cols].dropna()
+
+        # 4) Recombine: only rows with valid targets
+        clean = pd.concat([feats, targets], axis=1, join='inner')
+
+        # 5) Remove infinite values, then drop any new NaNs
+        clean = clean.replace([np.inf, -np.inf], np.nan).dropna()
+
+        return clean'''
+
+    def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean up features:
+          - Encode categoricals
+          - Forward-fill non-target features
+          - Remove infinities
+          (do NOT drop any rows; leave NaNs for the imputer)
+        """
+        # 1) Handle categorical variables
+        cat_cols = features.select_dtypes(include=['object']).columns
+        for col in cat_cols:
+            features[f'{col}_encoded'] = pd.factorize(features[col])[0]
+        features.drop(columns=cat_cols, inplace=True)
+
+        # 2) Split off targets and features
+        target_cols = [c for c in features.columns if c.startswith("future_")]
+        feat_cols   = [c for c in features.columns if c not in target_cols]
+
+        # 3) Forward fill only the non-target features
+        features_ffill = features[feat_cols].fillna(method='ffill')
+
+        # 4) Recombine with targets (which still have NaNs at the tail)
+        clean = pd.concat([features_ffill, features[target_cols]], axis=1)
+
+        # 5) Remove infinities
+        clean.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        return clean
+
     def select_features(self, features: pd.DataFrame, target_column: str, 
                        method: str = 'importance') -> List[str]:
         """
@@ -567,3 +607,79 @@ class ICTFeatureEngineer:
                 selected_features = [f for f in features.columns if f not in to_drop and 'future_' not in f]
         
         return selected_features
+
+class ICTFeatureTransformer(BaseEstimator, TransformerMixin):
+    """
+    A scikit-learn transformer that wraps your existing ICTFeatureEngineer
+    and automatically drops any look-ahead “future_…” columns.
+    """
+    def __init__(
+        self,
+        lookback_periods=[5, 10, 20],
+        feature_selection_threshold=0.01,
+        symbol=None,
+        additional_data=None
+    ):
+        # Simply store the constructor argument; do NOT mutate it
+        self.lookback_periods = lookback_periods
+        self.feature_selection_threshold = feature_selection_threshold
+        self.symbol = symbol
+        self.additional_data = additional_data
+
+    def fit(self, X, y=None):
+        # No fitting required for pure feature engineering
+        return self
+
+    '''def transform(self, X):
+        # Use an empty dict only at transform time
+        add_data = self.additional_data or {}
+
+        fe = ICTFeatureEngineer(
+            lookback_periods=self.lookback_periods,
+            feature_selection_threshold=self.feature_selection_threshold
+        )
+        fs = fe.engineer_features(
+            data=X,
+            symbol=self.symbol,
+            additional_data=add_data
+        )
+        features = fs.features.copy()
+        # Drop all look-ahead “future_” columns except the true target
+        drop_cols = [
+            col for col in features.columns
+            if col.startswith("future_") and col != "future_direction_5"
+        ]
+        features.drop(columns=drop_cols, inplace=True, errors="ignore")
+        # re-index so we have one row per original input timestamp
+        features = features.reindex(X.index)
+        return features
+        drop_cols = [col for col in features.columns if col.startswith("future_")]
+        features.drop(columns=drop_cols, inplace=True, errors="ignore")'''
+    def transform(self, X):
+        """
+        X: raw OHLC DataFrame
+        Returns: engineered features (no future_ columns), aligned to X.index
+        """
+        # Use stored additional_data or empty dict
+        add_data = self.additional_data if self.additional_data is not None else {}
+
+        # Run your existing feature engineer
+        fe = ICTFeatureEngineer(
+            lookback_periods=self.lookback_periods,
+            feature_selection_threshold=self.feature_selection_threshold
+        )
+        fs = fe.engineer_features(
+            data=X,
+            symbol=self.symbol,
+            additional_data=add_data
+        )
+        features = fs.features.copy()
+
+        # Drop every look-ahead future_ column (including the target itself)
+        drop_cols = [c for c in features.columns if c.startswith("future_")]
+        features.drop(columns=drop_cols, inplace=True, errors="ignore")
+
+        # Re-index to match input X exactly (inserting NaNs where rows were removed)
+        features = features.reindex(X.index)
+
+        return features

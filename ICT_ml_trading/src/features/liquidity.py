@@ -53,7 +53,7 @@ class LiquidityAnalyzer:
                 if isinstance(loc, slice):
                     loc = loc.start or 0
                 window_start = max(0, loc - self.lookback_period)
-                window_end = min(len(df), loc + self.lookback_period)
+                window_end = loc #min(len(df), loc + self.lookback_period)
                 window_data = df.iloc[window_start:window_end]
                 touches = sum(abs(row['high'] - swing.price) / swing.price < self.liquidity_threshold
                               for _, row in window_data.iterrows())
@@ -67,15 +67,15 @@ class LiquidityAnalyzer:
                 if isinstance(loc, slice):
                     loc = loc.start or 0
                 window_start = max(0, loc - self.lookback_period)
-                window_end = min(len(df), loc + self.lookback_period)
+                window_end = loc #min(len(df), loc + self.lookback_period)
                 window_data = df.iloc[window_start:window_end]
                 touches = sum(abs(row['low'] - swing.price) / swing.price < self.liquidity_threshold
                               for _, row in window_data.iterrows())
                 liquidity_levels.append(LiquidityLevel(swing.index, swing.price, 'SSL', touches))
             except Exception as e:
                 print(f"[ERROR: SSL] {e} for swing.index={swing.index}")
-
-        for level in liquidity_levels:
+        
+        '''for level in liquidity_levels:
             try:
                 loc = df.index.get_loc(level.index)
                 if isinstance(loc, slice):
@@ -90,7 +90,7 @@ class LiquidityAnalyzer:
                         level.swept_index = df.index[i]
                         break
             except Exception as e:
-                print(f"[ERROR: sweep check] {e} for level.index={level.index}")
+                print(f"[ERROR: sweep check] {e} for level.index={level.index}")'''
 
         return liquidity_levels
 

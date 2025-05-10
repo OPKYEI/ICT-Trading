@@ -4,6 +4,22 @@ Execution logic: simulate a broker executing signals into trades.
 """
 import pandas as pd
 from typing import List, Dict
+import oandapyV20
+from oandapyV20 import API
+from oandapyV20.endpoints.orders import OrderCreate
+import pandas as pd
+from oandapyV20 import API
+from oandapyV20.endpoints.orders import OrderCreate
+from src.utils.config import (
+    OANDA_API_TOKEN,
+    OANDA_ACCOUNT_ID,
+    SYMBOL,
+    USE_TP_SL,
+    TAKE_PROFIT_PIPS,
+    STOP_LOSS_PIPS,
+    PIP_SIZE_DICT,
+    DEFAULT_PIP_SIZE,
+)
 
 class Executor:
     """
@@ -80,20 +96,85 @@ class Executor:
             })
 
         return pd.DataFrame(trades)
-class OandaExecutor:
-    def __init__(self, token, account):
-        self.client = API(access_token=token, environment=config.OANDA_ENV)
-        self.account = account
+# Add this improved OandaExecutor class to your src/trading/executor.py file
+# Replace or update the existing OandaExecutor class
 
-    def send_order(self, instrument, units, tp_price=None, sl_price=None):
+class OandaExecutor:
+    """
+    Live order executor using OANDA REST API.
+    """
+
+    def __init__(self):
+        # Initialize OANDA REST client
+        self.client = API(
+            access_token=OANDA_API_TOKEN,
+            environment="practice"  # switch to "live" if you change OANDA_ENV
+        )
+        self.account = OANDA_ACCOUNT_ID
+
+        # Determine pip size once, from config
+        clean_symbol = SYMBOL.replace("_", "")
+        self.pip_size = PIP_SIZE_DICT.get(clean_symbol, DEFAULT_PIP_SIZE)
+
+        print(f"✅ Initialized Oanda executor with account: {self.account} "
+              f"and pip_size: {self.pip_size}")
+
+    def place_order(self, signal, symbol=SYMBOL, units=1000, price=None):
+        """
+        Execute a market order on OANDA.
+        signal: +1 buy, -1 sell, 0 skip
+        units: base risk units
+        price: float for logging/TP-SL calculation
+        """
+        if signal == 0:
+            print("ℹ️ No trade signal (0), skipping order")
+            return None
+
+        # Scale base units by signal direction
+        order_units = int(units * signal)
+
+        # Use the precomputed pip_size
+        pip_size = self.pip_size
+
+        # Build order payload
         data = {
             "order": {
-                "instrument": instrument,
-                "units": str(units),
+                "instrument": symbol,
+                "units": str(order_units),
                 "type": "MARKET",
-                **({"takeProfitOnFill": {"price": tp_price}} if tp_price else {}),
-                **({"stopLossOnFill": {"price": sl_price}} if sl_price else {})
+                "timeInForce": "FOK",
             }
         }
-        r = OrderCreate(accountID=self.account, data=data)
-        return self.client.request(r)
+
+        # Append TP/SL if configured
+        if USE_TP_SL and price is not None:
+            tp = price + signal * TAKE_PROFIT_PIPS * pip_size
+            sl = price - signal * STOP_LOSS_PIPS * pip_size
+            data["order"]["takeProfitOnFill"] = {"price": f"{tp:.5f}"}
+            data["order"]["stopLossOnFill"] = {"price": f"{sl:.5f}"}
+            tp_sl_info = f", TP={tp:.5f}, SL={sl:.5f}"
+        else:
+            tp_sl_info = ""
+
+        # Log what we’re about to do
+        ts = pd.Timestamp.now()
+        side = "BUY" if signal > 0 else "SELL"
+        price_info = f" @ {price:.5f}" if price is not None else ""
+        print(f"🛎️ Sending {side} {abs(order_units)} units of {symbol}"
+              f"{price_info} at {ts}{tp_sl_info}")
+
+        try:
+            req = OrderCreate(accountID=self.account, data=data)
+            resp = self.client.request(req)
+            tx_id = resp["orderCreateTransaction"]["id"]
+            print(f"✅ Order executed successfully: {tx_id}")
+            return resp
+        except Exception as e:
+            print(f"❌ Order execution failed: {e}")
+            return None
+
+    def send_order(self, timestamp, signal, price, pip_size=None):
+        """
+        Legacy wrapper; calls place_order.
+        """
+        return self.place_order(signal=signal, price=price)

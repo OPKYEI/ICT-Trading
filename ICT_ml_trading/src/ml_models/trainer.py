@@ -12,6 +12,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import get_scorer
        
 
+
 def grid_search_with_checkpoint(
     model: BaseEstimator,
     param_grid: Dict[str, Any],
@@ -21,17 +22,16 @@ def grid_search_with_checkpoint(
     inner_splits: int = 3,
     scoring: str = 'accuracy',
     checkpoint_dir: str = 'checkpoints',
-    prefix: str = 'grid'
+    prefix: str = 'grid',
+    embargo: int = 0  # number of samples to embargo before each test fold
 ) -> Tuple[BaseEstimator, float, List[float]]:
     """
-    📊 Nested TimeSeriesSplit CV:
+    📊 Nested TimeSeriesSplit CV with optional embargo:
     1️⃣ Outer loop for honest test performance (outer_splits)
-    2️⃣ Inner loop for hyperparam tuning (inner_splits)
-    Returns final_model trained on full data, average outer score, and per-fold scores.
+    2️⃣ Inner loop for hyperparameter tuning (inner_splits)
+    3️⃣ Embargo window to prevent forward‐lookahead leakage
     """
-    
     os.makedirs(checkpoint_dir, exist_ok=True)
-
     outer_cv = TimeSeriesSplit(n_splits=outer_splits)
     inner_cv = TimeSeriesSplit(n_splits=inner_splits)
     scorer = get_scorer(scoring)
@@ -39,53 +39,71 @@ def grid_search_with_checkpoint(
     outer_scores: List[float] = []
     best_params_list: List[Dict[str, Any]] = []
 
-    # Outer folds
     for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X), start=1):
-        print(f"📈 Outer fold {fold}/{outer_splits}")
-        X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
-        X_te, y_te = X.iloc[test_idx],  y.iloc[test_idx]
+        # ── Apply embargo: drop the last `embargo` samples immediately before the test window
+        if embargo > 0:
+            first_test = test_idx.min()
+            train_idx = train_idx[train_idx < first_test - embargo]
 
-        # Inner grid search
-        best_score = float('-inf')
-        best_params: Dict[str,Any] = {}
+        # ── Log fold boundaries (datetime index if available, else integer)
+        try:
+            td = X.index[train_idx]
+            vd = X.index[test_idx]
+            print(f"TRAIN: {td.min()} → {td.max()},  TEST: {vd.min()} → {vd.max()}")
+        except Exception:
+            print(f"TRAIN idx: {train_idx.min()} → {train_idx.max()},  TEST idx: {test_idx.min()} → {test_idx.max()}")
+
+        # ── Inner loop: hyperparameter search
+        best_score, best_params = float('-inf'), {}
         for params in ParameterGrid(param_grid):
-            clf = clone(model).set_params(**params)
-            scores = []
-            for _, (itr, ivl) in enumerate(inner_cv.split(X_tr)):
-                X_itr, y_itr = X_tr.iloc[itr], y_tr.iloc[itr]
-                X_ivl, y_ivl = X_tr.iloc[ivl], y_tr.iloc[ivl]
-                clf.fit(X_itr, y_itr)
-                scores.append(scorer(clf, X_ivl, y_ivl))
-            mean_inner = sum(scores) / len(scores)
-            if mean_inner > best_score:
-                best_score = mean_inner
-                best_params = params
+            cv_scores = []
+            for inner_train, inner_val in inner_cv.split(train_idx):
+                clf = clone(model).set_params(**params)
+                clf.fit(
+                    X.iloc[train_idx[inner_train]],
+                    y.iloc[train_idx[inner_train]]
+                )
+                cv_scores.append(
+                    scorer(
+                        clf,
+                        X.iloc[train_idx[inner_val]],
+                        y.iloc[train_idx[inner_val]]
+                    )
+                )
+            mean_cv = sum(cv_scores) / len(cv_scores)
+            if mean_cv > best_score:
+                best_score, best_params = mean_cv, params
 
-        print(f"🔍 Best inner params fold {fold}: {best_params}, score {best_score:.4f}")
         best_params_list.append(best_params)
 
-        # Retrain on full train split
-        best_clf = clone(model).set_params(**best_params).fit(X_tr, y_tr)
-        outer_score = scorer(best_clf, X_te, y_te)
-        print(f"✅ Outer fold {fold} test {scoring}: {outer_score:.4f}")
+        # ── Retrain on the full (embargoed) train split, evaluate on test split
+        best_clf = clone(model).set_params(**best_params).fit(
+            X.iloc[train_idx],
+            y.iloc[train_idx]
+        )
+        outer_score = scorer(best_clf, X.iloc[test_idx], y.iloc[test_idx])
+        print(f"✅ Fold {fold} test {scoring}: {outer_score:.4f}")
         outer_scores.append(outer_score)
 
-        # Checkpoint each fold's model
-        ckpt_path = os.path.join(checkpoint_dir, f"{prefix}_{model.__class__.__name__}_fold{fold}.pkl")
+        # ── Checkpoint this fold’s best params
+        ckpt_path = os.path.join(
+            checkpoint_dir,
+            f"{prefix}_{model.__class__.__name__}_fold{fold}.pkl"
+        )
         with open(ckpt_path, 'wb') as f:
             pickle.dump({'params': best_params}, f)
 
     avg_score = sum(outer_scores) / len(outer_scores)
     print(f"📊 Average nested CV {scoring}: {avg_score:.4f}")
 
-    # Choose most common best_params
+    # ── Build final model on the full dataset using the most common params
     from collections import Counter
-    param_tuples = [tuple(sorted(p.items())) for p in best_params_list]
-    most_common = Counter(param_tuples).most_common(1)[0][0]
+    most_common = Counter(
+        tuple(sorted(p.items())) for p in best_params_list
+    ).most_common(1)[0][0]
     final_params = dict(most_common)
-
-    # Final model on full data
     final_model = clone(model).set_params(**final_params).fit(X, y)
+
     return final_model, avg_score, outer_scores
 
 def train_multiple_models_with_split(
