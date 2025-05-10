@@ -119,7 +119,7 @@ def evaluate_and_save_metrics(name, model, X_test, y_test, out_dir):
 def main():
     # STEP 1: Load Data
     print("\n✅ STEP 1: Loading data")
-    csv_file = PROJECT_ROOT / "data" / "USDCHF=X_60m.csv"
+    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m.csv"
     csv_name = csv_file.stem
     symbol = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
