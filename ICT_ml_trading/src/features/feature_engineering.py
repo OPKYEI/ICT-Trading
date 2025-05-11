@@ -577,35 +577,7 @@ class ICTFeatureEngineer:
 
         return clean
 
-    '''def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
-        """
-        Clean up features:
-          - Encode categoricals
-          - Forward-fill non-target features
-          - Remove infinities
-          (do NOT drop any rows; leave NaNs for the imputer)
-        """
-        # 1) Handle categorical variables
-        cat_cols = features.select_dtypes(include=['object']).columns
-        for col in cat_cols:
-            features[f'{col}_encoded'] = pd.factorize(features[col])[0]
-        features.drop(columns=cat_cols, inplace=True)
-
-        # 2) Split off targets and features
-        target_cols = [c for c in features.columns if c.startswith("future_")]
-        feat_cols   = [c for c in features.columns if c not in target_cols]
-
-        # 3) Forward fill only the non-target features
-        features_ffill = features[feat_cols].fillna(method='ffill')
-
-        # 4) Recombine with targets (which still have NaNs at the tail)
-        clean = pd.concat([features_ffill, features[target_cols]], axis=1)
-
-        # 5) Remove infinities
-        clean.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-        return clean'''
-
+    
     def select_features(self, features: pd.DataFrame, target_column: str, 
                        method: str = 'importance') -> List[str]:
         """
@@ -686,17 +658,25 @@ class ICTFeatureTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        # Build cache key args
+        # 1) Compute base features via cached engineer
         start_ts = X.index.min()
         end_ts   = X.index.max()
         lbp      = tuple(self.lookback_periods)
         fst      = self.feature_selection_threshold
         sym      = self.symbol or ""
-        add_data = self.additional_data or {}
-
-        # Call the standalone cached function
-        return _cached_engineer(
-            X, sym, lbp, fst, start_ts, end_ts, add_data
+        feats    = _cached_engineer(
+            X, sym, lbp, fst, start_ts, end_ts, self.additional_data
         )
+
+        # 2) Merge multi-timeframe series
+        for tf, df_tf in self.additional_data.items():
+            # Align the higher-timeframe data to X's index, then prefix columns
+            df_aligned   = df_tf.reindex(X.index, method="ffill")
+            df_prefixed  = df_aligned.add_prefix(f"{tf}_")
+            # Join into the feature matrix
+            feats = feats.join(df_prefixed, how="left")
+
+        return feats
+
 
     
