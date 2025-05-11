@@ -115,7 +115,7 @@ def to_numpy_array(X):
 def main():
     # STEP 1: Load & align multi‐timeframe data
     print("\n✅ STEP 1: Loading multi‐TF data")
-    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m - Copy.csv"
+    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m.csv"
     csv_name  = csv_file.stem
     symbol    = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
@@ -389,6 +389,22 @@ def main():
         hr = equity["equity"].pct_change().dropna()
         sharpe = (hr.mean()/hr.std()) * np.sqrt(252*24)
         print(f"📈 Annualized Sharpe (hourly): {sharpe:.2f}")
+        # ─── New Drawdown Duration & Consistency Metrics ───
+        # 1) Drawdown Duration (in number of periods, e.g. hours)
+        cum_max = equity["equity"].cummax()
+        underwater = equity["equity"] < cum_max
+        # identify consecutive underwater stretches
+        groups = (underwater != underwater.shift()).cumsum()
+        durations = underwater.groupby(groups).sum()
+        max_dd_duration = durations.max()
+        print(f"⏳ Max Drawdown Duration: {int(max_dd_duration)} periods")
+
+        # 2) Monthly Hit-Rate (consistency of positive months)
+        monthly_close = equity["equity"].resample("M").last()
+        monthly_ret   = monthly_close.pct_change().dropna()
+        hit_rate      = (monthly_ret > 0).mean()
+        print(f"🎯 Positive Month Hit Rate: {hit_rate:.2%}")
+        # ────────────────────────────────────────────────────
 
         # Extract trades PnL
         pos = aligned_signals["signal"].shift(1).fillna(0)
