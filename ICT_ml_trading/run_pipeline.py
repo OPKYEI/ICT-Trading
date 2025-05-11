@@ -33,6 +33,7 @@ import joblib
 from tqdm import tqdm
 
 # your project modules
+from src.ml_models.trainer import load_checkpoint
 from src.utils.config import BROKER_NAME, PIP_SIZE_DICT, DEFAULT_PIP_SIZE, USE_TP_SL
 from ml_models.trainer import grid_search_with_checkpoint
 from utils.visualization import plot_equity_curve, plot_drawdown, plot_metric_bar
@@ -62,18 +63,6 @@ if str(SRC_DIR) not in sys.path:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Pipeline")
 
-
-def load_checkpoint(checkpoint_dir, model_name, prefix):
-    """Load model from checkpoint if it exists"""
-    path = Path(checkpoint_dir) / f"{prefix}_{model_name}.joblib"
-    if path.exists():
-        try:
-            mdl = joblib.load(path)
-            print(f"✅ Loaded checkpoint for {model_name} from {path}")
-            return mdl
-        except Exception as e:
-            print(f"❌ Failed to load checkpoint for {model_name}: {e}")
-    return None
 
 
 def evaluate_and_save_metrics(name, model, X_test, y_test, out_dir):
@@ -119,7 +108,7 @@ def evaluate_and_save_metrics(name, model, X_test, y_test, out_dir):
 def main():
     # STEP 1: Load Data
     print("\n✅ STEP 1: Loading data")
-    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m.csv"
+    csv_file = PROJECT_ROOT / "data" / "GBPUSD=X_60m.csv"
     csv_name = csv_file.stem
     symbol = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
@@ -210,7 +199,9 @@ def main():
 
 
     print("✅ STEP 3 complete: Pipeline (with imputer) ready")
-
+    print("\n✅ STEP 4: Nested TimeSeriesSplit CV training")
+    trained_models = {}
+    metrics_list  = []
     #print("Pipeline steps:", pipeline.named_steps)
     #print("Pipeline parameter names:", list(pipeline.get_params().keys()))
 
@@ -224,15 +215,7 @@ def main():
     reports_dir    = PROJECT_ROOT / "reports";    reports_dir.mkdir(exist_ok=True)
 
     
-    #_________________________________________________________
-    # 
-    # STEP 4: Nested TimeSeriesSplit CV training via Pipeline
-    #_________________________________________________________
-    
-    print("\n✅ STEP 4: Nested TimeSeriesSplit CV training")
-
-    trained_models = {}
-    metrics_list = []
+   
 
     for name, (builder_fn, params) in model_configs.items():
         print(f"\n📈 Nested CV for {name}")
@@ -240,20 +223,38 @@ def main():
         # inject the correct classifier into our pipeline
         pipeline.set_params(clf=builder_fn())
 
-        final_model, avg_score, fold_scores = grid_search_with_checkpoint(
-            model=pipeline,
-            param_grid=params,            # e.g. {"clf__n_estimators": [50,100]}
-            X=X_raw_train,
-            y=y_train,
-            outer_splits=5,
-            inner_splits=3,
-            scoring="accuracy",
-            checkpoint_dir=str(checkpoint_dir),
-            prefix=f"{csv_name}_{name}",
-            embargo=25
-        )
+        # 1. Attempt to load an existing checkpoint
+        ckpt_model = load_checkpoint(checkpoint_dir, name, prefix=f"{csv_name}_{name}")
+        if ckpt_model is not None:
+            final_model = ckpt_model
+            print(f"⚡ Skipping CV, using loaded checkpoint for {name}")
+            avg_score, fold_scores = None, []
+        else:
+            # 2. No checkpoint found → run nested CV as before
+            final_model, avg_score, fold_scores = grid_search_with_checkpoint(
+                model=pipeline,
+                param_grid=params,
+                X=X_raw_train,
+                y=y_train,
+                outer_splits=5,
+                inner_splits=3,
+                scoring="accuracy",
+                checkpoint_dir=str(checkpoint_dir),
+                prefix=f"{csv_name}_{name}",
+                embargo=25
+            )
+            # 3. Save the best model as a .joblib for future runs
+            ckpt_path = Path(checkpoint_dir) / f"{csv_name}_{name}.joblib"
+            joblib.dump(final_model, ckpt_path)
+            print(f"✅ Saved CV checkpoint for {name} → {ckpt_path}")
 
-        print(f"📊 {name} avg nested accuracy: {avg_score:.4f} (folds: {fold_scores})")
+    
+        if avg_score is None:
+            # We loaded from checkpoint and skipped CV
+            print(f"📊 {name}: loaded from checkpoint, CV skipped")
+        else:
+            print(f"📊 {name} avg nested accuracy: {avg_score:.4f} (folds: {fold_scores})")
+
         trained_models[name] = final_model
 
         # Evaluate on raw test set (features auto-created inside pipeline)

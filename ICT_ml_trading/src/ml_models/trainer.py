@@ -10,7 +10,43 @@ from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import get_scorer
-       
+import joblib
+from pathlib import Path
+
+def load_checkpoint(checkpoint_dir: str, model_name: str, prefix: str) -> Optional[Any]:
+    """
+    Load a saved model from:
+      {csv_name}_best_pipeline_{model_name}.pkl  or
+      {csv_name}_best_pipeline_{model_name}.joblib
+    even if prefix was passed as '{csv_name}_{model_name}'.
+    """
+    # If prefix ends with '_{model_name}', strip that off to get the csv_name
+    suffix = f"_{model_name}"
+    if prefix.endswith(suffix):
+        csv_name = prefix[: -len(suffix)]
+    else:
+        csv_name = prefix
+
+    ckpt_dir = Path(checkpoint_dir)
+    candidates = [
+        ckpt_dir / f"{csv_name}_best_pipeline_{model_name}.pkl",
+        ckpt_dir / f"{csv_name}_best_pipeline_{model_name}.joblib",
+    ]
+
+    for path in candidates:
+        if path.exists():
+            try:
+                mdl = joblib.load(path)
+                print(f"✅ Loaded checkpoint for {model_name} from {path}")
+                return mdl
+            except Exception as e:
+                print(f"❌ Failed to load checkpoint for {model_name} from {path}: {e}")
+                return None
+
+    tried = "\n  ".join(str(p) for p in candidates)
+    print(f"⚠️ No checkpoint found for {model_name}. Tried:\n  {tried}")
+    return None
+
 
 
 def grid_search_with_checkpoint(

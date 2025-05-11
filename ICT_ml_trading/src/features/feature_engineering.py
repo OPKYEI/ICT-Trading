@@ -79,7 +79,7 @@ class ICTFeatureEngineer:
             'end_date': data.index[-1],
             'total_bars': len(data)
         }
-        '''
+        
         if self.feature_config['market_structure']:
             print("→ Adding market structure features")
             features = self._add_market_structure_features(data, features)
@@ -98,7 +98,7 @@ class ICTFeatureEngineer:
 
         if self.feature_config['patterns']:
             print("→ Adding pattern features")
-            features = self._add_pattern_features(data, features)'''
+            features = self._add_pattern_features(data, features)
 
         if self.feature_config['intermarket'] and additional_data:
             print("→ Adding intermarket features")
@@ -355,40 +355,57 @@ class ICTFeatureEngineer:
         return features
     
     def _add_pattern_features(self, data: pd.DataFrame, features: pd.DataFrame) -> pd.DataFrame:
-        """Add pattern recognition features"""
-        # Get required data for pattern recognition
-        swing_points = self.market_structure.identify_swing_points(data)
-        fvgs = self.pd_arrays.identify_fvg(data)
-        order_blocks = self.pd_arrays.identify_order_blocks(data, swing_points)
-        breaker_blocks = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points)
-        liquidity_levels = self.liquidity.identify_liquidity_levels(data, swing_points)
-        
-        # Market structure for pattern context
-        structure = self.market_structure.classify_market_structure(swing_points)
-        market_structure = {'trend': structure.trend}
-        
-        # Find all patterns
-        patterns = self.patterns.find_all_patterns(
-            data, swing_points, fvgs, order_blocks, 
-            breaker_blocks, liquidity_levels, market_structure
-        )
-        
-        # Initialize pattern features
-        features['pattern_detected'] = 0
-        features['pattern_type'] = 'none'
-        features['pattern_direction'] = 'none'
+        """Add pattern recognition features (strictly backward-looking)."""
+        # 1️⃣ Gather all contexts
+        swing_points    = self.market_structure.identify_swing_points(data)
+        fvgs            = self.pd_arrays.identify_fvg(data) or []
+        order_blocks    = self.pd_arrays.identify_order_blocks(data, swing_points) or []
+        breaker_blocks  = self.pd_arrays.identify_breaker_blocks(data, order_blocks, swing_points) or []
+        liquidity_lvls  = self.liquidity.identify_liquidity_levels(data, swing_points) or []
+
+        # 2️⃣ Market‐structure context
+        struct = self.market_structure.classify_market_structure(swing_points)
+        mkt_ctx = {'trend': struct.trend}
+
+        # 3️⃣ Discover patterns, ensuring we get dicts of lists (never None)
+        raw_patterns = {}
+        try:
+            raw_patterns = self.patterns.find_all_patterns(
+                data, swing_points, fvgs, order_blocks,
+                breaker_blocks, liquidity_lvls, mkt_ctx
+            ) or {}
+        except Exception:
+            raw_patterns = {}
+
+        # Normalize: convert any None → []
+        patterns: Dict[str, List] = {
+            ptype: (plist if isinstance(plist, list) else [])
+            for ptype, plist in raw_patterns.items()
+        }
+
+        # 4️⃣ Initialize feature columns
+        features['pattern_detected']   = 0
+        features['pattern_type']       = 'none'
+        features['pattern_direction']  = 'none'
         features['pattern_confidence'] = 0.0
-        
-        # Mark patterns
-        for pattern_type, pattern_list in patterns.items():
-            for pattern in pattern_list:
-                idx = data.index[pattern.end_idx]
-                features.loc[idx, 'pattern_detected'] = 1
-                features.loc[idx, 'pattern_type'] = pattern.pattern_type
-                features.loc[idx, 'pattern_direction'] = pattern.direction
-                features.loc[idx, 'pattern_confidence'] = pattern.confidence
-        
+
+        # 5️⃣ Populate
+        for ptype, plist in patterns.items():
+            for pat in plist:
+                # end_idx is strictly in the past relative to each bar
+                if not hasattr(pat, 'end_idx'):
+                    continue
+                try:
+                    ts = data.index[pat.end_idx]
+                except (IndexError, KeyError):
+                    continue
+                features.loc[ts, 'pattern_detected']   = 1
+                features.loc[ts, 'pattern_type']       = getattr(pat, 'pattern_type', ptype)
+                features.loc[ts, 'pattern_direction']  = getattr(pat, 'direction', 'none')
+                features.loc[ts, 'pattern_confidence'] = getattr(pat, 'confidence', 0.0)
+
         return features
+
     
     def _add_intermarket_features(self, data: pd.DataFrame, features: pd.DataFrame, 
                                 additional_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -490,7 +507,7 @@ class ICTFeatureEngineer:
         
         return features
     #FUNCTIONAL BEFORE ATTEMPTING ALL CHANGES FOR LEAKAGE
-    '''def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
+    def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
         """
         Clean up features:
           1) Encode categoricals
@@ -520,9 +537,9 @@ class ICTFeatureEngineer:
         # 5) Remove infinite values, then drop any new NaNs
         clean = clean.replace([np.inf, -np.inf], np.nan).dropna()
 
-        return clean'''
+        return clean
 
-    def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
+    '''def _cleanup_features(self, features: pd.DataFrame) -> pd.DataFrame:
         """
         Clean up features:
           - Encode categoricals
@@ -549,7 +566,7 @@ class ICTFeatureEngineer:
         # 5) Remove infinities
         clean.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-        return clean
+        return clean'''
 
     def select_features(self, features: pd.DataFrame, target_column: str, 
                        method: str = 'importance') -> List[str]:

@@ -75,7 +75,7 @@ class LiquidityAnalyzer:
             except Exception as e:
                 print(f"[ERROR: SSL] {e} for swing.index={swing.index}")
         
-        '''for level in liquidity_levels:
+        for level in liquidity_levels:
             try:
                 loc = df.index.get_loc(level.index)
                 if isinstance(loc, slice):
@@ -90,7 +90,7 @@ class LiquidityAnalyzer:
                         level.swept_index = df.index[i]
                         break
             except Exception as e:
-                print(f"[ERROR: sweep check] {e} for level.index={level.index}")'''
+                print(f"[ERROR: sweep check] {e} for level.index={level.index}")
 
         return liquidity_levels
 
