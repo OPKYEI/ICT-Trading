@@ -14,6 +14,44 @@ from .patterns import PatternRecognition
 from .intermarket import IntermarketAnalysis
 from sklearn.base import BaseEstimator, TransformerMixin
 logger = logging.getLogger(__name__)
+from pathlib import Path
+from joblib import Memory
+
+# Set up cache directory (adjust path as needed)
+CACHE_DIR = Path(__file__).parent.parent / "cache" / "feature_cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+memory = Memory(CACHE_DIR, verbose=0)
+
+@memory.cache
+def _cached_engineer(
+    X: pd.DataFrame,
+    symbol: str,
+    lookback_periods: tuple,
+    feature_selection_threshold: float,
+    start_ts: pd.Timestamp,
+    end_ts: pd.Timestamp,
+    additional_data: dict
+) -> pd.DataFrame:
+    """
+    Standalone cached feature-engineering function (no self).
+    """
+    # 1) Build the engineer with the same params
+    fe = ICTFeatureEngineer(
+        lookback_periods=list(lookback_periods),
+        feature_selection_threshold=feature_selection_threshold
+    )
+    # 2) Engineer features
+    fs = fe.engineer_features(
+        data=X,
+        symbol=symbol,
+        additional_data=additional_data
+    )
+    feats = fs.features.copy()
+    # 3) Drop all look-ahead columns
+    drop_cols = [c for c in feats.columns if c.startswith("future_")]
+    feats.drop(columns=drop_cols, inplace=True, errors="ignore")
+    # 4) Re-index to match X exactly
+    return feats.reindex(X.index)
 
 @dataclass
 class FeatureSet:
@@ -647,56 +685,18 @@ class ICTFeatureTransformer(BaseEstimator, TransformerMixin):
         # No fitting required for pure feature engineering
         return self
 
-    '''def transform(self, X):
-        # Use an empty dict only at transform time
+    def transform(self, X):
+        # Build cache key args
+        start_ts = X.index.min()
+        end_ts   = X.index.max()
+        lbp      = tuple(self.lookback_periods)
+        fst      = self.feature_selection_threshold
+        sym      = self.symbol or ""
         add_data = self.additional_data or {}
 
-        fe = ICTFeatureEngineer(
-            lookback_periods=self.lookback_periods,
-            feature_selection_threshold=self.feature_selection_threshold
+        # Call the standalone cached function
+        return _cached_engineer(
+            X, sym, lbp, fst, start_ts, end_ts, add_data
         )
-        fs = fe.engineer_features(
-            data=X,
-            symbol=self.symbol,
-            additional_data=add_data
-        )
-        features = fs.features.copy()
-        # Drop all look-ahead “future_” columns except the true target
-        drop_cols = [
-            col for col in features.columns
-            if col.startswith("future_") and col != "future_direction_5"
-        ]
-        features.drop(columns=drop_cols, inplace=True, errors="ignore")
-        # re-index so we have one row per original input timestamp
-        features = features.reindex(X.index)
-        return features
-        drop_cols = [col for col in features.columns if col.startswith("future_")]
-        features.drop(columns=drop_cols, inplace=True, errors="ignore")'''
-    def transform(self, X):
-        """
-        X: raw OHLC DataFrame
-        Returns: engineered features (no future_ columns), aligned to X.index
-        """
-        # Use stored additional_data or empty dict
-        add_data = self.additional_data if self.additional_data is not None else {}
 
-        # Run your existing feature engineer
-        fe = ICTFeatureEngineer(
-            lookback_periods=self.lookback_periods,
-            feature_selection_threshold=self.feature_selection_threshold
-        )
-        fs = fe.engineer_features(
-            data=X,
-            symbol=self.symbol,
-            additional_data=add_data
-        )
-        features = fs.features.copy()
-
-        # Drop every look-ahead future_ column (including the target itself)
-        drop_cols = [c for c in features.columns if c.startswith("future_")]
-        features.drop(columns=drop_cols, inplace=True, errors="ignore")
-
-        # Re-index to match input X exactly (inserting NaNs where rows were removed)
-        features = features.reindex(X.index)
-
-        return features
+    

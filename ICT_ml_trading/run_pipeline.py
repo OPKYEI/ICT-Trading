@@ -34,6 +34,7 @@ from tqdm import tqdm
 
 # your project modules
 from src.ml_models.trainer import load_checkpoint
+from sklearn.preprocessing import FunctionTransformer
 from src.utils.config import BROKER_NAME, PIP_SIZE_DICT, DEFAULT_PIP_SIZE, USE_TP_SL
 from ml_models.trainer import grid_search_with_checkpoint
 from utils.visualization import plot_equity_curve, plot_drawdown, plot_metric_bar
@@ -103,64 +104,59 @@ def evaluate_and_save_metrics(name, model, X_test, y_test, out_dir):
     metrics_df.to_csv(Path(out_dir)/f"{name}_metrics.csv", index=False)
 
     return metrics_df.to_dict(orient="records")[0]
+    
+    
+
+def to_numpy_array(X):
+    """Convert pandas DataFrame to numpy array for the pipeline."""
+    return X.values
 
 
 def main():
-    # STEP 1: Load Data
-    print("\n✅ STEP 1: Loading data")
-    csv_file = PROJECT_ROOT / "data" / "GBPUSD=X_60m.csv"
-    csv_name = csv_file.stem
-    symbol = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
+    # STEP 1: Load & align multi‐timeframe data
+    print("\n✅ STEP 1: Loading multi‐TF data")
+    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m - Copy.csv"
+    csv_name  = csv_file.stem
+    symbol    = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
+    # Use our new loader
     data_loader = DataLoader(data_path=PROJECT_ROOT / "data")
-    try:
-        df = data_loader._load_local_data(
-            symbol=symbol,
-            start_date=None,
-            end_date=None,
-            interval="60m"
-        )
-        if df is None or df.empty:
-            print("⚠️ DataLoader fallback to pd.read_csv")
-            df = pd.read_csv(csv_file)
-            if "timestamp" in df.columns:
-                df.rename(columns={"timestamp": "datetime"}, inplace=True)
-            df["datetime"] = pd.to_datetime(df["datetime"], errors='coerce')
-            df.set_index("datetime", inplace=True)
-    except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        raise
+    # Returns (hourly_df, {"1D": daily_df, "1W": weekly_df})
+    df, extras_full = data_loader.load_multi_timeframe(
+        csv_path=csv_file,
+        base_tf="1H",
+        extra_tfs=["1D", "1W"]
+    )
 
-    required_cols = ['open', 'high', 'low', 'close']
-    missing = [c for c in required_cols if c not in map(str.lower, df.columns)]
-    if missing:
-        raise ValueError(f"Missing cols: {missing}")
-    df.columns = [c.lower() for c in df.columns]
-
-    print(f"Loaded data {len(df)} rows from {df.index[0]} to {df.index[-1]}")
-    print("✅ STEP 1 complete: Data loaded")
+    print(f"Loaded & aligned data {len(df)} rows from {df.index[0]} to {df.index[-1]}")
+    print("✅ STEP 1 complete: Multi‐TF data loaded")
 
     # STEP 2: Create train/validation + never-touch hold-out
     print("\n✅ STEP 2: Creating hold-out and validation splits")
-
-    # 2.1 Hold out the last 10%
     holdout_size = int(len(df) * 0.10)
     holdout_data = df.iloc[-holdout_size:]
     df_main      = df.iloc[:-holdout_size]
     print(f"Held out {len(holdout_data)} rows: "
           f"{holdout_data.index[0]} → {holdout_data.index[-1]}")
 
-    # 2.2 On the remaining 90%, do an 80/20 train/validation split
     split_i    = int(len(df_main) * 0.8)
     train_data = df_main.iloc[:split_i]
     test_data  = df_main.iloc[split_i:]
     print(f"Train: {len(train_data)}, Validation: {len(test_data)}")
+    '''
+    # STEP 2.5: Slice & forward-fill extras to train/test
+    extras_train = {
+        tf: df_tf.reindex(train_data.index, method="ffill")
+        for tf, df_tf in extras_full.items()
+    }
+    extras_test = {
+        tf: df_tf.reindex(test_data.index, method="ffill")
+        for tf, df_tf in extras_full.items()
+    }
+    print("✅ STEP 2.5: Reindexed & forward-filled extra TFs to train/test splits")
+    '''
 
-    pip_size = PIP_SIZE_DICT.get(symbol, DEFAULT_PIP_SIZE)
-
-    
-    # ────────────────────────────────────────────────────────
-    # STEP 3: Compute features/targets & build Pipeline (with imputer)
+    # STEP 3: Compute features/targets & build Pipeline
     print("\n✅ STEP 3: Computing features/targets & building Pipeline")
 
     # 3.1 Full‐run feature engineering to extract targets
@@ -168,16 +164,25 @@ def main():
         lookback_periods=[5, 10, 20],
         feature_selection_threshold=0.01
     )
-    fs_train = fe_temp.engineer_features(data=train_data, symbol=symbol, additional_data={})
+    fs_train = fe_temp.engineer_features(
+        data=train_data,
+        symbol=symbol,
+        additional_data=extras_full
+    )
     train_feats = fs_train.features
-    fs_test  = fe_temp.engineer_features(data=test_data,  symbol=symbol, additional_data={})
-    test_feats  = fs_test.features
+
+    fs_test = fe_temp.engineer_features(
+        data=test_data,
+        symbol=symbol,
+        additional_data=extras_full
+    )
+    test_feats = fs_test.features
 
     # 3.2 Extract targets and align timestamps
     y_train = train_feats["future_direction_5"].dropna()
-    y_test  = test_feats ["future_direction_5"].dropna()
+    y_test  = test_feats["future_direction_5"].dropna()
     X_raw_train = train_data.loc[y_train.index]
-    X_raw_test  = test_data .loc[y_test.index]
+    X_raw_test  = test_data.loc[y_test.index]
 
     print(f"Aligned train samples: {len(X_raw_train)}, test samples: {len(X_raw_test)}")
 
@@ -187,18 +192,27 @@ def main():
             lookback_periods=[5, 10, 20],
             feature_selection_threshold=0.01,
             symbol=symbol,
-            additional_data={}
+            additional_data=extras_full
         )),
-        ("imputer", SimpleImputer(strategy="median")),     # ← IMPUTE FIRST
+        # use top‐level function instead of a lambda
+        ("to_numpy", FunctionTransformer(func=to_numpy_array, validate=False)),
+        ("imputer", SimpleImputer(strategy="median")),
         ("selector", SelectFromModel(
             estimator=RandomForestClassifier(n_estimators=50, random_state=42),
             threshold="median"
         )),
-        ("clf", build_random_forest())                       # ← THEN SELECT & CLASSIFY
+        ("clf", build_random_forest())
     ])
 
 
+
     print("✅ STEP 3 complete: Pipeline (with imputer) ready")
+    
+
+    
+    #===================================================================
+    # Step 4
+    #===================================================================
     print("\n✅ STEP 4: Nested TimeSeriesSplit CV training")
     trained_models = {}
     metrics_list  = []
@@ -355,8 +369,8 @@ def main():
 
     price_df = test_data[["high","low","close"]].loc[X_raw_test.index]
     common_idx = signals.index.intersection(price_df.index)
-
-
+    
+    pip_size = PIP_SIZE_DICT.get(symbol, DEFAULT_PIP_SIZE)
     if not common_idx.empty:
         aligned_signals = signals.loc[common_idx].loc[~signals.index.duplicated()]
         aligned_prices  = price_df.loc[common_idx].loc[~price_df.index.duplicated()]

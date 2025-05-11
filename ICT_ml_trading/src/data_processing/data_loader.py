@@ -5,7 +5,7 @@ import yfinance as yf
 from typing import Dict, Optional, Union, List
 from pathlib import Path
 import glob
-
+from src.data_processing.timeframe_manager import TimeframeManager
 class DataLoader:
     """Load and preprocess financial data for ICT analysis"""
     
@@ -163,3 +163,35 @@ class DataLoader:
         filepath = self.data_path / filename
         df.to_csv(filepath)
         print(f"Data saved to {filepath}")
+        
+    def load_multi_timeframe(
+        self,
+        csv_path: Path,
+        base_tf: str,
+        extra_tfs: list[str]
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+        """
+        Load base timeframe CSV then generate and align extra timeframes.
+        Returns (base_df, {tf: df, …}).
+        """
+        # 1) Load the base data
+        base_df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+        # ENSURE the index is datetime
+        base_df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+    # ensure a DatetimeIndex, interpreting day.month.year
+        base_df.index = pd.to_datetime(
+            base_df.index,
+            dayfirst=True,
+            errors="coerce"
+        )
+
+        # 2) Build MTF dict
+        tfm = TimeframeManager()
+        mtf = tfm.create_mtf_dataset(base_df, base_tf, extra_tfs)
+
+        # 3) Align to common range
+        aligned = tfm.align_timeframes(mtf)
+
+        # 4) Pop the base and return extras
+        extras = {tf: aligned[tf] for tf in extra_tfs}
+        return aligned[base_tf], extras
