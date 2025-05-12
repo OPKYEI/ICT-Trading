@@ -102,8 +102,10 @@ fe = ICTFeatureEngineer(
 try:
     from src.data_processing.oanda_data import OandaDataFetcher
     oanda_fetcher = (
-        OandaDataFetcher(OANDA_API_TOKEN, OANDA_ACCOUNT_ID) if LIVE_MODE else None
+        OandaDataFetcher()
+        if LIVE_MODE else None
     )
+
     if oanda_fetcher:
         logger.info("Initialized OandaDataFetcher")
 except ImportError:
@@ -118,6 +120,9 @@ last_traded_time = None
 # 5) Model loading: prefer 'best' pipelines
 # ----------------------------------------------------------------------------
 import joblib
+def to_numpy_array(X):
+    """Convert pandas DataFrame to numpy array."""
+    return X.values
 
 def load_model(symbol: str):
     """
@@ -221,7 +226,8 @@ def run_once():
         # drop extras & reorder
         X = X.reindex(columns=trained_cols)
         logger.info(f"Aligned features to trained set, new shape {X.shape}")
-
+    for col in ["open","high","low","close","volume"]:
+        X[col] = df[col].reindex(X.index)
     # 4) Generate signal
     try:
         sig_df = TradingStrategy(declared_model).generate_signals(X)

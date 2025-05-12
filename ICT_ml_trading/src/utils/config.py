@@ -26,7 +26,7 @@ BROKER_NAME      = "OANDA"  # options: "FTMO", "OANDA", "FXCM"
 # OANDA demo credentials (fallback)
 OANDA_API_TOKEN  = "cefb66e4bf361e828b27a7e1875e9157-c2550c70ce264031c57e3ea268af107d"
 OANDA_ACCOUNT_ID = "101-001-31678593-001"
-OANDA_ENV = "live" # 'practice' for simulation; 'live' for real trading
+OANDA_ENV = "practice" # 'practice' for simulation; 'live' for real trading
 
 # FXCM demo credentials (fallback)
 FXCM_API_TOKEN   = "YOUR_FXCM_TOKEN"
