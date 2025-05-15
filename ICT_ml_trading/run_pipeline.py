@@ -35,7 +35,7 @@ from tqdm import tqdm
 # your project modules
 from src.ml_models.trainer import load_checkpoint
 from sklearn.preprocessing import FunctionTransformer
-from src.utils.config import BROKER_NAME, PIP_SIZE_DICT, DEFAULT_PIP_SIZE, USE_TP_SL
+from src.utils.config import BROKERS, PIP_SIZE_DICT, DEFAULT_PIP_SIZE, USE_TP_SL
 from ml_models.trainer import grid_search_with_checkpoint
 from utils.visualization import plot_equity_curve, plot_drawdown, plot_metric_bar
 from run_pipeline_extensions import regime_walk_forward, monte_carlo_bootstrap
@@ -115,7 +115,7 @@ def to_numpy_array(X):
 def main():
     # STEP 1: Load & align multi‐timeframe data
     print("\n✅ STEP 1: Loading multi‐TF data")
-    csv_file = PROJECT_ROOT / "data" / "EURUSD=X_60m.csv"
+    csv_file = PROJECT_ROOT / "data" / "GBPUSD=X_60m.csv"
     csv_name  = csv_file.stem
     symbol    = csv_name.split('=')[0] if '=' in csv_name else csv_name.split('_')[0]
 
@@ -220,10 +220,10 @@ def main():
     #print("Pipeline parameter names:", list(pipeline.get_params().keys()))
 
     model_configs = {
-        #"rf":  (build_random_forest,       {"clf__clf__n_estimators": [50, 100]}),
-        #"lr":  (build_logistic_regression, {"clf__clf__C": [0.1, 1.0]}),
+        "rf":  (build_random_forest,       {"clf__clf__n_estimators": [50, 100]}),
+        "lr":  (build_logistic_regression, {"clf__clf__C": [0.1, 1.0]}),
         "xgb": (build_xgboost,             {"clf__clf__n_estimators": [50, 100]}),
-        #"gb":  (build_gradient_boosting,   {"clf__clf__n_estimators": [50]})
+        "gb":  (build_gradient_boosting,   {"clf__clf__n_estimators": [50]})
     }
     checkpoint_dir = PROJECT_ROOT / "checkpoints"; checkpoint_dir.mkdir(exist_ok=True)
     reports_dir    = PROJECT_ROOT / "reports";    reports_dir.mkdir(exist_ok=True)

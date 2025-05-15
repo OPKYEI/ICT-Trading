@@ -1,35 +1,43 @@
 # src/utils/config.py
+
 """
 Global configuration for the FX ML trading system.
-All user‑tweakable parameters live here. No need to edit any other file.
 """
 
-# === Take-Profit / Stop-Loss Options ===
-# When False: next-bar execution only (original behavior)
-# When True: per-bar returns clipped to TP/SL levels (in pips)
+# === Risk & TP/SL Settings ===
 USE_TP_SL        = False
-TAKE_PROFIT_PIPS = 10    # in pips
-STOP_LOSS_PIPS   = 5     # in pips
+TAKE_PROFIT_PIPS = 10
+STOP_LOSS_PIPS   = 5
 
 # === Pip Size Definitions ===
-# Price units per pip by symbol
 PIP_SIZE_DICT = {
-    "DEFAULT": 0.0001,  # e.g. EURUSD, GBPUSD
-    "USDJPY": 0.01,     # JPY pairs
+    "DEFAULT": 0.0001,   # standard FX pairs
+    "USD_JPY":  0.01,     # JPY crosses
+    "XAU_USD": 0.01,     # gold
+    "XAG_USD": 0.001,    # silver
+    "US30_USD": 1.0,     # Dow Jones index
+    "NAS100_USD": 1.0,   # Nasdaq-100 index
 }
 DEFAULT_PIP_SIZE = PIP_SIZE_DICT["DEFAULT"]
 
-# === Broker / Demo Trading Config ===
-# FTMO has no public API; switch to OANDA or FXCM if needed
-BROKER_NAME      = "OANDA"  # options: "FTMO", "OANDA", "FXCM"
 
-# OANDA demo credentials (fallback)
+# === Brokers for copy-trading ===
+# List every broker account you want to fan out trades to.
+BROKERS = ["OANDA", "FTMO"]           # e.g. ["OANDA", "FXCM", "FTMO"]
+
+# === Instruments to trade ===
+SYMBOLS = ["EUR_USD", "XAU_USD", "US30_USD", "NAS100_USD"]
+
+# === OANDA Credentials ===
 OANDA_API_TOKEN  = "cefb66e4bf361e828b27a7e1875e9157-c2550c70ce264031c57e3ea268af107d"
 OANDA_ACCOUNT_ID = "101-001-31678593-001"
-OANDA_ENV = "practice" # 'practice' for simulation; 'live' for real trading
+OANDA_ENV        = "practice"   # "practice" or "live"
 
-# FXCM demo credentials (fallback)
+# === FXCM Credentials (if you add FXCM to BROKERS) ===
 FXCM_API_TOKEN   = "YOUR_FXCM_TOKEN"
 
-#===SYMBOL & INSTRUMENT===
-SYMBOL = "EUR_USD"
+# === FTMO / MT5 Settings (if you add FTMO to BROKERS) === C:\Program Files\FTMO Global Markets MT5 Terminal
+FTMO_MT5_TERMINAL = r"C:\Program Files\FTMO Global Markets MT5 Terminal\terminal64.exe"
+FTMO_MT5_LOGIN    = 1510725787
+FTMO_MT5_PASSWORD = "*1*@8i3IEY!9XM"
+FTMO_MT5_SERVER   = "FTMO-Demo"

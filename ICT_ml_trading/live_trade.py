@@ -247,7 +247,7 @@ def run_once():
     # 6) Execute trade
     if sig != 0:
         try:
-            units = 1000
+            units = 100000
             if LIVE_MODE:
                 resp = OandaExecutor().place_order(
                     signal=sig, symbol=SYMBOL, units=units, price=price
