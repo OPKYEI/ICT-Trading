@@ -5,6 +5,9 @@ import sys, os, ctypes, logging, warnings, time, schedule
 from pathlib import Path
 from datetime import datetime, timedelta
 
+sys.path.insert(0, str(Path("src").resolve()))
+
+
 # ──────────────────────────────────────────────────────────
 # 1) UTF-8 console on Windows
 # ──────────────────────────────────────────────────────────

@@ -43,8 +43,7 @@ logs/
 reports/
 
 # Model artifacts & checkpoints
-checkpoints/
-data/models/
+
 
 # Environment files (include your secrets here!)
 .env
@@ -63,4 +62,3 @@ data/models/
 # Secret config
 *.secret
 secrets.yaml
-data/
