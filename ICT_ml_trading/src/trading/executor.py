@@ -7,12 +7,13 @@ from typing import List, Dict
 import oandapyV20
 from oandapyV20 import API
 from oandapyV20.endpoints.orders import OrderCreate
-import pandas as pd
+
 from oandapyV20 import API
-from oandapyV20.endpoints.orders import OrderCreate
+
 from src.utils.config import (
     OANDA_API_TOKEN,
     OANDA_ACCOUNT_ID,
+    OANDA_ENV,
     SYMBOLS,
     USE_TP_SL,
     TAKE_PROFIT_PIPS,
@@ -111,10 +112,8 @@ class OandaExecutor:
 
     def __init__(self):
         # Initialize OANDA REST client
-        self.client = API(
-            access_token=OANDA_API_TOKEN,
-            environment="practice"  # or use OANDA_ENV if you import it
-        )
+        self.client = API(access_token=OANDA_API_TOKEN, environment=OANDA_ENV)
+
         self.account = OANDA_ACCOUNT_ID
         print(f"✅ Initialized Oanda executor with account: {self.account}")
 
@@ -184,12 +183,39 @@ class OandaExecutor:
         return self.place_order(signal=signal, price=price)
 import MetaTrader5 as mt5
 
+# In executor.py, update FTMOExecutor.__init__:
 class FTMOExecutor:
     def __init__(self, terminal: str, login: int, password: str, server: str):
-        # Initialize the MT5 terminal connection
-        if not mt5.initialize(path=terminal, login=login, password=password, server=server):
-            raise RuntimeError(f"MT5 initialize failed: {mt5.last_error()}")
-
+        self.terminal = terminal
+        self.login = login
+        self.password = password
+        self.server = server
+        print(f"✅ FTMO executor initialized")
+        
+    def _ensure_connected(self):
+        """Ensure we're connected to the right MT5 terminal"""
+        # Same logic as PepperstoneExecutor._ensure_connected()
+        account_info = mt5.account_info()
+        if account_info and account_info.login == self.login:
+            return True
+            
+        try:
+            mt5.shutdown()
+            time.sleep(0.2)
+        except:
+            pass
+            
+        if not mt5.initialize(
+            path=self.terminal,
+            login=self.login,
+            password=self.password,
+            server=self.server,
+            timeout=30000
+        ):
+            raise RuntimeError(f"Failed to connect to FTMO: {mt5.last_error()}")
+            
+        return True
+        
     def place_order(self, signal: int, symbol: str, units: int, price: float = None) -> dict:
         """
         Send a market order via MT5 using FTMO demo account.
@@ -199,12 +225,15 @@ class FTMOExecutor:
         units: in base‐currency units (e.g. 1000 → 0.01 lots)
         price: ignored for market orders
         """
+        # Ensure we're connected to FTMO
+        self._ensure_connected()
+        
         # MT5 uses no underscore, and 1 lot = 100,000 units
         MT5_SYMBOL_MAP = {
             "EUR_USD":  "EURUSD",
             "XAU_USD":  "XAUUSD",
-            "US30_USD": "US30.cash",    # adjust to your terminal’s exact name
-            "NAS100_USD":"NAS100.cash"  # adjust as needed
+            "US30_USD": "US30",    # adjust to your terminal’s exact name
+            "NAS100_USD":"US100"  # adjust as needed
         }
         mt5_sym = MT5_SYMBOL_MAP.get(symbol, symbol.replace("_",""))
         # ensure the symbol is available in Market Watch
@@ -237,6 +266,124 @@ class FTMOExecutor:
             raise RuntimeError(f"MT5 order_send failed: {mt5.last_error()}")
         # Convert the result (a namedtuple) to dict if possible
         return result._asdict() if hasattr(result, "_asdict") else dict(result)
+        
+# Add this to your executor.py file
+
+class PepperstoneExecutor:
+    def __init__(self, terminal: str, login: int, password: str, server: str):
+        # Store credentials but don't connect yet
+        self.terminal = terminal
+        self.login = login
+        self.password = password
+        self.server = server
+        
+        # Correct symbol mapping for Pepperstone
+        self.SYMBOL_MAP = {
+            "EUR_USD": "EURUSD",
+            "XAU_USD": "XAUUSD",
+            "US30_USD": "US30",
+            "NAS100_USD": "NAS100",
+            "GBP_USD": "GBPUSD",
+            "USD_JPY": "USDJPY",
+            "AUD_USD": "AUDUSD",
+        }
+        print(f"✅ Pepperstone executor initialized")
+
+    def _ensure_connected(self):
+        """Ensure we're connected to the right MT5 terminal"""
+        # Check if we're connected to the right account
+        account_info = mt5.account_info()
+        if account_info and account_info.login == self.login:
+            return True
+            
+        # Need to reconnect
+        try:
+            mt5.shutdown()
+            time.sleep(0.2)
+        except:
+            pass
+            
+        if not mt5.initialize(
+            path=self.terminal,
+            login=self.login,
+            password=self.password,
+            server=self.server,
+            timeout=30000
+        ):
+            raise RuntimeError(f"Failed to connect to Pepperstone: {mt5.last_error()}")
+            
+        # Verify connection
+        account_info = mt5.account_info()
+        if not account_info or account_info.login != self.login:
+            raise RuntimeError(f"Connected to wrong account: {account_info.login if account_info else 'None'}")
+            
+        return True
+
+    def place_order(self, signal: int, symbol: str, units: int, price: float = None) -> dict:
+        # Ensure we're connected to Pepperstone
+        self._ensure_connected()
+        
+        # Get the correct Pepperstone symbol
+        mt5_symbol = self.SYMBOL_MAP.get(symbol, symbol.replace("_", ""))
+        
+        # Ensure symbol is selected
+        if not mt5.symbol_select(mt5_symbol, True):
+            available = [s.name for s in mt5.symbols_get() if symbol[:3] in s.name]
+            raise RuntimeError(f"Pepperstone: Cannot select {mt5_symbol}. Similar symbols: {available[:5]}")
+
+        # Get current tick
+        tick = mt5.symbol_info_tick(mt5_symbol)
+        if tick is None:
+            raise RuntimeError(f"Pepperstone: No tick data for {mt5_symbol}")
+
+        # Get symbol info for lot constraints
+        symbol_info = mt5.symbol_info(mt5_symbol)
+        if not symbol_info:
+            raise RuntimeError(f"Pepperstone: No symbol info for {mt5_symbol}")
+        
+        # Calculate lot size with minimum constraint
+        lot_size = max(units / 100_000.0, symbol_info.volume_min)
+        
+        # Prepare order
+        order_type = mt5.ORDER_TYPE_BUY if signal > 0 else mt5.ORDER_TYPE_SELL
+        price_to_use = tick.ask if signal > 0 else tick.bid
+        
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": mt5_symbol,
+            "volume": round(lot_size, 2),  # Round to 2 decimal places
+            "type": order_type,
+            "price": price_to_use,
+            "deviation": 20,
+            "magic": 234001,
+            "comment": "Pepperstone trade",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        # Log the order
+        side = "BUY" if signal > 0 else "SELL"
+        print(f"🛎️ Pepperstone: {side} {lot_size:.2f} lots of {mt5_symbol} @ {price_to_use}")
+        
+        # Send order
+        result = mt5.order_send(request)
+        
+        if result is None:
+            raise RuntimeError(f"Pepperstone: order_send returned None")
+        
+        # Log result
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"✅ Pepperstone: Order {result.order} executed successfully")
+        else:
+            print(f"❌ Pepperstone: Order failed - {result.comment} (retcode: {result.retcode})")
+            
+        return result._asdict() if hasattr(result, "_asdict") else dict(result)
+
+    def __del__(self):
+        try:
+            mt5.shutdown()
+        except:
+            pass
 
     def __del__(self):
         try:

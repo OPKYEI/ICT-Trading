@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-# live_trade.py
+# live_trade_multiinstrument.py
 
 import sys, os, ctypes, logging, warnings, time, schedule
 from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path("src").resolve()))
-
 
 # ──────────────────────────────────────────────────────────
 # 1) UTF-8 console on Windows
@@ -51,62 +50,129 @@ from src.utils.config import (
 from src.data_processing.data_loader import DataLoader
 from src.features.feature_engineering import ICTFeatureEngineer
 from src.trading.strategy import TradingStrategy
-from src.trading.executor import Executor, OandaExecutor, FTMOExecutor
-# (you can import FXCM/FTMO executors here once implemented)
+from src.trading.executor import Executor, OandaExecutor, FTMOExecutor, PepperstoneExecutor
+
+# Try to import Pepperstone if available
+try:
+    from src.utils.config import (
+        PEPPERSTONE_MT5_TERMINAL, PEPPERSTONE_MT5_LOGIN, 
+        PEPPERSTONE_MT5_PASSWORD, PEPPERSTONE_MT5_SERVER
+    )
+    from src.trading.executor import PepperstoneExecutor
+    PEPPERSTONE_AVAILABLE = True
+except ImportError:
+    PEPPERSTONE_AVAILABLE = False
+    logger.debug("Pepperstone configuration not found")
 
 # ──────────────────────────────────────────────────────────
-# 4) Determine live vs simulation
+# 4) Helper functions
 # ──────────────────────────────────────────────────────────
-LIVE_MODE = ("OANDA" in BROKERS and OANDA_API_TOKEN != "YOUR_OANDA_TOKEN")
-mode = "LIVE" if LIVE_MODE else "SIMULATION"
-logger.info(f"Starting in {mode} mode")
+def clean_duplicate_timestamps(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Remove duplicate timestamps from dataframe"""
+    if df.index.duplicated().any():
+        dup_count = df.index.duplicated().sum()
+        logger.warning(f"{symbol}: Found {dup_count} duplicate timestamps, keeping last")
+        df = df[~df.index.duplicated(keep='last')]
+    return df
 
 # ──────────────────────────────────────────────────────────
-# 5) Initialize data loader & feature engineer
+# 5) Determine if we have any live brokers configured
+# ──────────────────────────────────────────────────────────
+CONFIGURED_BROKERS = {
+    "OANDA": OANDA_API_TOKEN != "YOUR_OANDA_TOKEN",
+    "FTMO": FTMO_MT5_LOGIN != 0,
+    "FXCM": FXCM_API_TOKEN != "YOUR_FXCM_TOKEN"
+}
+
+# Add Pepperstone if available
+if PEPPERSTONE_AVAILABLE:
+    CONFIGURED_BROKERS["PEPPERSTONE"] = PEPPERSTONE_MT5_LOGIN != 0
+
+# Check which brokers are actually configured
+ACTIVE_BROKERS = {name: True for name, configured in CONFIGURED_BROKERS.items() 
+                  if name in BROKERS and configured}
+
+logger.info(f"Configured brokers: {list(ACTIVE_BROKERS.keys())}")
+logger.info(f"Mode: LIVE TRADING on {len(ACTIVE_BROKERS)} broker(s)")
+
+# ──────────────────────────────────────────────────────────
+# 6) Initialize data loader & feature engineer
 # ──────────────────────────────────────────────────────────
 data_loader = DataLoader(data_path=Path("data"))
 fe = ICTFeatureEngineer(lookback_periods=[5,10,20], feature_selection_threshold=0.01)
 
 # ──────────────────────────────────────────────────────────
-# 6) Build signal‐provider (OANDA or local CSV)
+# 7) Build signal‐provider (prefer live data when available)
 # ──────────────────────────────────────────────────────────
-try:
-    from src.data_processing.oanda_data import OandaDataFetcher
-    signal_fetcher = OandaDataFetcher() if LIVE_MODE else None
-    if signal_fetcher:
-        logger.info("Initialized OandaDataFetcher for signals")
-except ImportError:
-    logger.warning("OandaDataFetcher not available; falling back to local CSV for signals")
-    signal_fetcher = None
+signal_fetcher = None
+if "OANDA" in ACTIVE_BROKERS:
+    try:
+        from src.data_processing.oanda_data import OandaDataFetcher
+        signal_fetcher = OandaDataFetcher()
+        logger.info("📡 Using OandaDataFetcher for live market data")
+    except ImportError:
+        logger.warning("⚠️ OandaDataFetcher not available")
+
+if not signal_fetcher:
+    logger.info("📁 Using local CSV data for signals")
 
 # ──────────────────────────────────────────────────────────
-# 7) Instantiate every broker‐executor
+# 8) Instantiate every broker‐executor
 # ──────────────────────────────────────────────────────────
 executors = {}
-for broker in BROKERS:
-    if broker == "OANDA":
-        executors[broker] = OandaExecutor()
-    elif broker == "FTMO":
-        executors[broker] = FTMOExecutor(
-            FTMO_MT5_TERMINAL,
-            FTMO_MT5_LOGIN,
-            FTMO_MT5_PASSWORD,
-            FTMO_MT5_SERVER
-        )
-    else:
-        executors[broker] = Executor()
+broker_instruments = {}  # Track which instruments each broker supports
 
-logger.info(f"Registered executors for brokers: {list(executors)}")
+for broker in BROKERS:
+    try:
+        if broker == "OANDA" and CONFIGURED_BROKERS.get("OANDA", False):
+            executors[broker] = OandaExecutor()
+            # OANDA demo supports forex and some commodities
+            broker_instruments[broker] = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "XAU_USD", "XAG_USD"]
+            logger.info(f"✅ Initialized {broker} executor")
+            
+        elif broker == "FTMO" and CONFIGURED_BROKERS.get("FTMO", False):
+            executors[broker] = FTMOExecutor(
+                FTMO_MT5_TERMINAL,
+                FTMO_MT5_LOGIN, 
+                FTMO_MT5_PASSWORD,
+                FTMO_MT5_SERVER
+            )
+            # FTMO supports all instruments
+            broker_instruments[broker] = SYMBOLS.copy()
+            logger.info(f"✅ Initialized {broker} executor")
+            
+        elif broker == "PEPPERSTONE" and CONFIGURED_BROKERS.get("PEPPERSTONE", False) and PEPPERSTONE_AVAILABLE:
+            executors[broker] = PepperstoneExecutor(
+                PEPPERSTONE_MT5_TERMINAL,
+                PEPPERSTONE_MT5_LOGIN,
+                PEPPERSTONE_MT5_PASSWORD,
+                PEPPERSTONE_MT5_SERVER
+            )
+            # Pepperstone supports all instruments including indices
+            broker_instruments[broker] = SYMBOLS.copy()
+            logger.info(f"✅ Initialized {broker} executor")
+            
+        else:
+            logger.warning(f"⚠️ {broker} is in BROKERS list but not configured or not implemented")
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize {broker}: {e}")
+        logger.info(f"   → Continuing without {broker}")
+
+if not executors:
+    logger.error("❌ No brokers successfully initialized! Check your configuration.")
+    logger.info("   → Set up at least one broker's credentials in config.py")
+else:
+    logger.info(f"📊 Active brokers: {list(executors.keys())}")
 
 # ──────────────────────────────────────────────────────────
-# 8) Load pipeline model once
+# 9) Load pipeline model once
 # ──────────────────────────────────────────────────────────
 def to_numpy_array(X): return X.values
 
 def load_model():
     # choose the latest '*_best_pipeline_*.pkl' in checkpoints/
-    ckpt = sorted((Path("checkpoints")\
-            .glob("*_best_pipeline_*.pkl")))[-1]
+    ckpt = sorted((Path("checkpoints").glob("*_best_pipeline_*.pkl")))[-1]
     logger.info(f"Loading model: {ckpt.name}")
     mdl = joblib.load(ckpt)
     return mdl
@@ -114,13 +180,13 @@ def load_model():
 model = load_model()
 
 # ──────────────────────────────────────────────────────────
-# 9) Track last trades to avoid repetition (per symbol)
+# 10) Track last trades to avoid repetition (per symbol)
 # ──────────────────────────────────────────────────────────
 last_traded_signal = {sym:0 for sym in SYMBOLS}
 last_traded_time   = {sym:None for sym in SYMBOLS}
 
 # ──────────────────────────────────────────────────────────
-# 10) The trading cycle
+# 11) The trading cycle
 # ──────────────────────────────────────────────────────────
 def run_once():
     now = datetime.now()
@@ -152,6 +218,9 @@ def run_once():
             )
             logger.info(f"{symbol}: loaded {len(df)} bars from local CSV")
 
+        # Clean any duplicate timestamps
+        df = clean_duplicate_timestamps(df, symbol)
+
         if len(df) < 30:
             logger.warning(f"{symbol}: Insufficient data ({len(df)} bars)—skipping")
             continue
@@ -180,7 +249,8 @@ def run_once():
                     X[c] = 0
             X = X.reindex(columns=cols)
         for c in ["open", "high", "low", "close", "volume"]:
-            X[c] = df[c].reindex(X.index)
+            if c in df.columns:
+                X[c] = df[c].reindex(X.index)
 
         # 4) Generate a signal
         try:
@@ -198,39 +268,79 @@ def run_once():
             logger.info(f"{symbol}: no new signal—skipping")
             continue
 
-        # 6) Broadcast the trade to ALL brokers
+        # 6) Broadcast the trade to ALL configured brokers
+        
         if sig != 0:
+            successful_brokers = []
+            failed_brokers = []
+            
             for broker, executor_instance in executors.items():
+                # Check if this broker supports this instrument
+                supported_instruments = broker_instruments.get(broker, SYMBOLS)
+                if symbol not in supported_instruments:
+                    logger.info(f"📌 {broker}: {symbol} not supported, skipping")
+                    continue
+                    
                 try:
-                    units = 1000  # adjust per symbol or broker if needed
-
-                    # Live brokers use place_order()
-                    if LIVE_MODE and hasattr(executor_instance, "place_order"):
+                    units = 50000  # You can customize this per broker if needed
+                    
+                    # All brokers should have place_order for live trading
+                    if hasattr(executor_instance, "place_order"):
                         resp = executor_instance.place_order(
                             signal=sig,
                             symbol=symbol,
                             units=units,
                             price=price
                         )
-                        logger.info(f"{broker} trade executed for {symbol}: {resp}")
-                    # Fallback simulation or non‐live executors
-                    elif hasattr(executor_instance, "execute"):
-                        trades = executor_instance.execute(
-                            pd.DataFrame({"signal": [sig]}, index=[last_idx]),
-                            df[["close"]].iloc[-1:]
-                        )
-                        logger.info(f"{broker} simulated trade for {symbol}: {trades}")
+                        
+                        # Check the response
+                        if resp:
+                            if isinstance(resp, dict):
+                                # Check for OANDA responses
+                                if "orderFillTransaction" in resp:
+                                    logger.info(f"✅ {broker} executed {symbol} trade: order {resp['orderFillTransaction']['id']}")
+                                    successful_brokers.append(broker)
+                                elif "orderRejectTransaction" in resp:
+                                    logger.error(f"❌ {broker} rejected {symbol} order: {resp['orderRejectTransaction']['rejectReason']}")
+                                    failed_brokers.append(broker)
+                                # Check for MT5 responses
+                                elif "retcode" in resp:
+                                    retcode = resp["retcode"]
+                                    if retcode == 10009:  # TRADE_RETCODE_DONE
+                                        order_id = resp.get("order", "N/A")
+                                        logger.info(f"✅ {broker} executed {symbol} trade: order {order_id}, deal {resp.get('deal', 'N/A')}")
+                                        successful_brokers.append(broker)
+                                    else:
+                                        comment = resp.get("comment", "Unknown error")
+                                        logger.error(f"❌ {broker} failed {symbol} trade: {comment} (retcode: {retcode})")
+                                        failed_brokers.append(broker)
+                                else:
+                                    logger.warning(f"⚠️ {broker} unexpected response for {symbol}")
+                                    failed_brokers.append(broker)
+                            else:
+                                logger.warning(f"⚠️ {broker} non-dict response for {symbol}")
+                                failed_brokers.append(broker)
+                        else:
+                            logger.error(f"❌ {broker} returned None for {symbol}")
+                            failed_brokers.append(broker)
                     else:
-                        logger.warning(f"{broker} has no execution method—skipping")
+                        logger.warning(f"⚠️ {broker} executor missing place_order() method")
+                        failed_brokers.append(broker)
+                        
                 except Exception as e:
-                    logger.error(f"{broker} execution error for {symbol}: {e}")
-
-            last_traded_signal[symbol] = sig
-            last_traded_time[symbol]   = last_idx
-
+                    logger.error(f"❌ {broker} execution failed for {symbol}: {e}")
+                    failed_brokers.append(broker)
+            
+            # Update tracking only if at least one broker succeeded
+            if successful_brokers:
+                last_traded_signal[symbol] = sig
+                last_traded_time[symbol] = last_idx
+                logger.info(f"📊 Trade summary for {symbol}: "
+                          f"Success: {successful_brokers}, "
+                          f"Failed: {failed_brokers}")
 
 # ──────────────────────────────────────────────────────────
-# 11) Scheduler
+# 12) Scheduler
 # ──────────────────────────────────────────────────────────
 def setup_schedule():
     schedule.every().hour.at(":01").do(run_once)
