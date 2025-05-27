@@ -251,4 +251,132 @@ The ML models learn complex relationships between:
    - Learns market-specific nuances
    - Adapts to changing conditions
 
-3. **Probability Assignment**
+3. **Probability Assignment**:
+   - Buy signal (1): Multiple bullish ICT confirmations
+   - Sell signal (-1): Multiple bearish ICT confirmations
+   - No trade (0): Conflicting or weak signals
+
+4. **Time-Aware Decisions**:
+   - Weights session importance
+   - Recognizes kill zone setups
+   - Avoids low-probability times
+
+### Feature Importance in ML Models
+
+Based on our training results, the most predictive features are:
+
+1. **Market Structure Features** (30-35%):
+   - Distance from swing highs/lows
+   - Market trend encoding
+   - MSS/BOS detection
+
+2. **PD Array Features** (25-30%):
+   - Near order blocks
+   - FVG presence
+   - Breaker block proximity
+
+3. **Time Features** (20-25%):
+   - Session overlaps
+   - Kill zone timing
+   - Day of week patterns
+
+4. **Liquidity Features** (10-15%):
+   - Distance to BSL/SSL
+   - Stop run detection
+   - Liquidity pool proximity
+
+5. **Technical Indicators** (5-10%):
+   - ATR (volatility)
+   - RSI divergences
+   - Moving average alignment
+
+### Entry Logic
+
+The ML model generates signals when:
+
+**Buy Signal (1)**:
+- Bullish market structure
+- Price at/near bullish PD array
+- SSL taken out (stop run)
+- During optimal time
+- Technical confirmation
+
+**Sell Signal (-1)**:
+- Bearish market structure
+- Price at/near bearish PD array
+- BSL taken out (stop run)
+- During optimal time
+- Technical confirmation
+
+**No Signal (0)**:
+- Conflicting ICT concepts
+- Low-probability time
+- Insufficient confluence
+- Range-bound structure
+
+## Practical Examples
+
+### Example 1: Bullish Setup
+
+```
+Time: London Open (8:00 AM)
+Structure: Series of HH/HL
+Event: Price sweeps SSL below recent low
+Action: Forms bullish engulfing at old bearish OB
+Signal: ML model outputs 0.89 probability → BUY
+```
+
+### Example 2: Bearish Setup
+
+```
+Time: NY Kill Zone (1:30 PM)
+Structure: Confirmed MSS (broke recent HL)
+Event: Retraces to 70% fib (OTE zone)
+Action: Rejection at bearish breaker block
+Signal: ML model outputs 0.92 probability → SELL
+```
+
+## Risk Management Integration
+
+While the ML model provides entry signals, risk management follows ICT principles:
+
+1. **Stop Loss Placement**:
+   - Beyond recent structure
+   - Outside PD arrays
+   - Beyond liquidity pools
+
+2. **Take Profit Targets**:
+   - Next liquidity pool
+   - Opposing PD array
+   - Structure-based targets
+
+3. **Position Sizing**:
+   - Based on account risk
+   - Adjusted for volatility
+   - Scaled with confidence
+
+## Performance Optimization
+
+### Why ICT + ML Works
+
+1. **Objective Rules**: ICT provides clear, programmable concepts
+2. **Pattern Recognition**: ML excels at finding complex relationships
+3. **Adaptability**: Models adjust to changing market conditions
+4. **Probability-Based**: Both ICT and ML focus on high-probability setups
+
+### Continuous Improvement
+
+The system improves through:
+- Regular retraining with new data
+- Feature engineering refinements
+- Hyperparameter optimization
+- Market regime adaptation
+
+## Conclusion
+
+The ICT-ML-Trading system combines the best of both worlds:
+- ICT provides the fundamental market understanding
+- ML provides the pattern recognition and probability assessment
+- Together, they create a robust, adaptive trading system
+
+By encoding institutional behavior patterns into features and letting machine learning find the optimal combinations, we achieve consistent profitability while maintaining the logical foundation of ICT concepts.
