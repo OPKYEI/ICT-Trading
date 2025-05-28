@@ -1,0 +1,30 @@
+{
+  "active_trades": {
+    "EUR_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-27 16:28:35.591682",
+      "entry_price": 1.13309
+    },
+    "GBP_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-27 16:28:35.591682",
+      "entry_price": 1.35052
+    },
+    "XAU_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-27 16:28:35.591682",
+      "entry_price": 3304.45
+    },
+    "US30_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-27 16:28:35.591682",
+      "entry_price": 42358.6
+    },
+    "NAS100_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-27 16:28:35.591682",
+      "entry_price": 21418.5
+    }
+  },
+  "last_check": "2025-05-27 16:28:35.591682"
+}

@@ -187,22 +187,41 @@ If training was completed before, models are loaded from checkpoints automatical
 python live_trade_multiinstrument.py
 ```
 
+**Important**: We recommend using the improved version with 5-bar window logic:
+
+```bash
+python live_trade_multiinstrument_improved.py
+```
+
+The improved bot includes:
+- **5-Bar Window Logic**: Trades are held for exactly 5 hours (matching ML model's prediction window)
+- **State Persistence**: Survives restarts without duplicate trades
+- **Smart Entry Validation**: Prevents chasing extended moves after restarts
+- **Automatic Position Management**: Closes trades after 5 hours automatically
+
+See [TRADING_LOGIC.md](docs/TRADING_LOGIC.md) for detailed explanation.
+
+### 2. How It Works
+
 The bot will:
 - Load the best model from checkpoints
 - Connect to all configured brokers
 - Fetch latest market data every hour at :01
-- Generate signals and execute trades
+- Generate signals based on 5-bar forward prediction
+- Execute trades with proper window management
+- Maintain state in `trade_state.json`
 - Log all activities to `logs/live_trade.log`
 
-### 2. Monitor Performance
+### 3. Monitor Performance
 
 - Check broker terminals for executed trades
 - Review `logs/live_trade.log` for detailed execution info
-- Monitor account balance and open positions
+- Monitor `trade_state.json` for active positions
+- Verify 5-hour automatic closures
 
-### 3. Stop Trading
+### 4. Stop Trading
 
-Press `Ctrl+C` to stop the bot gracefully.
+Press `Ctrl+C` to stop the bot gracefully. State is preserved for restart.
 
 ## 📈 Backtesting
 
