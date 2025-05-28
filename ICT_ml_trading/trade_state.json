@@ -24,7 +24,25 @@
       "signal": -1,
       "entry_time": "2025-05-28 10:01:00.772456",
       "entry_price": 21419.4
+    },
+    "AUD_USD": {
+      "signal": -1,
+      "entry_time": "2025-05-28 12:31:03.247237",
+      "entry_price": 0.64162,
+      "position_tickets": {
+        "PEPPERSTONE": 154715205,
+        "FTMO": 246329246
+      }
+    },
+    "USD_JPY": {
+      "signal": -1,
+      "entry_time": "2025-05-28 12:31:03.247237",
+      "entry_price": 145.049,
+      "position_tickets": {
+        "PEPPERSTONE": 154715209,
+        "FTMO": 246329255
+      }
     }
   },
-  "last_check": "2025-05-28 11:25:03.248513"
+  "last_check": "2025-05-28 12:31:03.247237"
 }

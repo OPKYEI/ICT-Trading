@@ -26,7 +26,7 @@ DEFAULT_PIP_SIZE = PIP_SIZE_DICT["DEFAULT"]
 BROKERS = ["OANDA", "PEPPERSTONE", "FTMO", "FXCM"] # e.g. ["OANDA", "FXCM", "FTMO"]. you can add more. you have to have an executor class for each new broker you add
 
 # === Instruments to trade ===
-SYMBOLS = ["EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"] #you can add more
+SYMBOLS = ["AUD_USD", "USD_JPY", "EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"] #you can add more
 
 # === OANDA Credentials ===
 OANDA_API_TOKEN  = "cefb66e4bf361e828b27a7e1875e9157-c2550c70ce264031c57e3ea268af107d"
