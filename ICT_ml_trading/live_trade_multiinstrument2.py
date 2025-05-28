@@ -90,7 +90,7 @@ class TradeStateManager:
                 return state
         except:
             return {
-                'active_trades': {},  # {symbol: {signal, entry_time, entry_price}}
+                'active_trades': {},  # {symbol: {signal, entry_time, entry_price, position_tickets}}
                 'last_check': None
             }
     
@@ -107,15 +107,16 @@ class TradeStateManager:
         with open(self.state_file, 'w') as f:
             json.dump(state_to_save, f, indent=2)
     
-    def add_trade(self, symbol, signal, entry_time, entry_price):
-        """Record a new trade"""
+    def add_trade(self, symbol, signal, entry_time, entry_price, position_tickets=None):
+        """Record a new trade with position tickets"""
         if 'active_trades' not in self.state:
             self.state['active_trades'] = {}
             
         self.state['active_trades'][symbol] = {
             'signal': signal,
             'entry_time': entry_time,
-            'entry_price': entry_price
+            'entry_price': entry_price,
+            'position_tickets': position_tickets or {}  # {broker: ticket}
         }
         self.save_state()
         
@@ -134,8 +135,13 @@ class TradeStateManager:
         trade = self.get_active_trade(symbol)
         if not trade:
             return True
+        
+        # Ensure entry_time is a Timestamp object
+        entry_time = trade['entry_time']
+        if isinstance(entry_time, str):
+            entry_time = pd.Timestamp(entry_time)
             
-        hours_elapsed = (current_time - trade['entry_time']).total_seconds() / 3600
+        hours_elapsed = (current_time - entry_time).total_seconds() / 3600
         return hours_elapsed >= 5
     
     def should_enter_trade(self, symbol, signal, current_price, current_time):
@@ -154,7 +160,12 @@ class TradeStateManager:
         
         # If within 5-hour window and same direction, skip
         if trade['signal'] == signal:
-            hours_elapsed = (current_time - trade['entry_time']).total_seconds() / 3600
+            # Ensure entry_time is a Timestamp object
+            entry_time = trade['entry_time']
+            if isinstance(entry_time, str):
+                entry_time = pd.Timestamp(entry_time)
+                
+            hours_elapsed = (current_time - entry_time).total_seconds() / 3600
             logger.info(f"{symbol}: Same direction signal within 5-hour window ({hours_elapsed:.1f}h elapsed), skipping")
             return False
         
@@ -187,34 +198,71 @@ def clean_duplicate_timestamps(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         df = df[~df.index.duplicated(keep='last')]
     return df
 
+def close_positions_properly(symbol, trade_info, executors, broker_instruments):
+    """Close positions using proper methods for each broker type"""
+    
+    position_tickets = trade_info.get('position_tickets', {})
+    
+    for broker, executor in executors.items():
+        supported = broker_instruments.get(broker, SYMBOLS)
+        if symbol not in supported:
+            continue
+            
+        try:
+            if broker == "OANDA":
+                # OANDA doesn't support hedging - use opposite signal
+                close_signal = -trade_info['signal']
+                resp = executor.place_order(
+                    signal=close_signal,
+                    symbol=symbol,
+                    units=50000,
+                    price=None
+                )
+                if resp:
+                    logger.info(f"✅ {broker} closed {symbol} position")
+                    
+            elif broker in ["FTMO", "PEPPERSTONE"]:
+                # MT5 brokers - use position-specific closing
+                ticket = position_tickets.get(broker)
+                
+                if ticket:
+                    # Try to close specific position
+                    try:
+                        result = executor.close_position(ticket)
+                        if result and result.get('retcode') == 10009:
+                            logger.info(f"✅ {broker} closed {symbol} position {ticket}")
+                        else:
+                            logger.error(f"❌ {broker} failed to close position {ticket}: {result}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ {broker} position {ticket} not found, may be already closed: {e}")
+                else:
+                    # No ticket stored - close all positions for this symbol with our magic
+                    magic = 234000 if broker == "FTMO" else 234001
+                    closed = executor.close_positions_by_symbol_and_magic(symbol, magic)
+                    if closed:
+                        logger.info(f"✅ {broker} closed {len(closed)} {symbol} positions")
+                    else:
+                        logger.warning(f"⚠️ {broker} no positions found for {symbol}")
+                        
+        except Exception as e:
+            logger.error(f"❌ {broker} failed to close {symbol}: {e}")
+
 def check_and_close_expired_trades(state_manager, executors, broker_instruments):
     """Check all active trades and close any that have exceeded 5 hours"""
     current_time = pd.Timestamp.now()
     
     for symbol, trade_info in list(state_manager.state.get('active_trades', {}).items()):
-        if state_manager.is_trade_expired(symbol, current_time):
-            logger.info(f"{symbol}: Trade exceeded 5-hour window, closing position")
+        entry_time = trade_info['entry_time']
+        if isinstance(entry_time, str):
+            entry_time = pd.Timestamp(entry_time)
             
-            # Close on all brokers
-            for broker, executor in executors.items():
-                supported = broker_instruments.get(broker, SYMBOLS)
-                if symbol not in supported:
-                    continue
-                    
-                try:
-                    # Send opposite signal to close
-                    close_signal = -trade_info['signal']  # Opposite of original
-                    
-                    if hasattr(executor, "place_order"):
-                        resp = executor.place_order(
-                            signal=close_signal,
-                            symbol=symbol,
-                            units=50000,
-                            price=None  # Current market price
-                        )
-                        logger.info(f"✅ {broker} closed {symbol} position after 5 hours")
-                except Exception as e:
-                    logger.error(f"❌ {broker} failed to close {symbol}: {e}")
+        hours_elapsed = (current_time - entry_time).total_seconds() / 3600
+        
+        if hours_elapsed >= 5:
+            logger.info(f"{symbol}: Trade exceeded 5-hour window ({hours_elapsed:.1f}h), closing position")
+            
+            # Use proper closing function
+            close_positions_properly(symbol, trade_info, executors, broker_instruments)
             
             # Remove from state
             state_manager.remove_trade(symbol)
@@ -441,28 +489,14 @@ def run_once():
         # 7) Close existing position if different direction
         if active_trade and active_trade['signal'] != sig:
             logger.info(f"{symbol}: Closing existing position before opening opposite")
-            # Close existing position first
-            for broker, executor in executors.items():
-                supported = broker_instruments.get(broker, SYMBOLS)
-                if symbol not in supported:
-                    continue
-                    
-                try:
-                    close_signal = -active_trade['signal']
-                    if hasattr(executor, "place_order"):
-                        resp = executor.place_order(
-                            signal=close_signal,
-                            symbol=symbol,
-                            units=50000,
-                            price=price
-                        )
-                        logger.info(f"✅ {broker} closed existing {symbol} position")
-                except Exception as e:
-                    logger.error(f"❌ {broker} failed to close {symbol}: {e}")
+            
+            # Use proper closing function
+            close_positions_properly(symbol, active_trade, executors, broker_instruments)
 
         # 8) Execute new trade on all brokers
         successful_brokers = []
         failed_brokers = []
+        position_tickets = {}  # Store position tickets for each broker
         
         for broker, executor_instance in executors.items():
             # Check if this broker supports this instrument
@@ -490,15 +524,25 @@ def run_once():
                             if "orderFillTransaction" in resp:
                                 logger.info(f"✅ {broker} executed {symbol} trade: order {resp['orderFillTransaction']['id']}")
                                 successful_brokers.append(broker)
+                                # OANDA doesn't use position tickets the same way
+                                
                             elif "orderRejectTransaction" in resp:
                                 logger.error(f"❌ {broker} rejected {symbol} order: {resp['orderRejectTransaction']['rejectReason']}")
                                 failed_brokers.append(broker)
+                                
                             # Check for MT5 responses
                             elif "retcode" in resp:
                                 retcode = resp["retcode"]
                                 if retcode == 10009:  # TRADE_RETCODE_DONE
                                     order_id = resp.get("order", "N/A")
-                                    logger.info(f"✅ {broker} executed {symbol} trade: order {order_id}")
+                                    
+                                    # Extract position ticket if available
+                                    if "position_ticket" in resp:
+                                        position_tickets[broker] = resp["position_ticket"]
+                                        logger.info(f"✅ {broker} executed {symbol} trade: order {order_id}, position {resp['position_ticket']}")
+                                    else:
+                                        logger.info(f"✅ {broker} executed {symbol} trade: order {order_id}")
+                                    
                                     successful_brokers.append(broker)
                                 else:
                                     comment = resp.get("comment", "Unknown error")
@@ -523,7 +567,7 @@ def run_once():
         
         # Update state if at least one broker succeeded
         if successful_brokers:
-            state_manager.add_trade(symbol, sig, current_time, price)
+            state_manager.add_trade(symbol, sig, current_time, price, position_tickets)
             logger.info(f"📊 Trade summary for {symbol}: "
                       f"Success: {successful_brokers}, "
                       f"Failed: {failed_brokers}")
@@ -543,6 +587,7 @@ if __name__ == "__main__":
     logger.info("   - Automatic position closing after 5 hours")
     logger.info("   - State persistence across restarts")
     logger.info("   - Price validation for late entries")
+    logger.info("   - Proper hedging broker support")
     
     setup_schedule()
     while True:

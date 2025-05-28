@@ -2,29 +2,29 @@
   "active_trades": {
     "EUR_USD": {
       "signal": -1,
-      "entry_time": "2025-05-27 16:28:35.591682",
-      "entry_price": 1.13309
+      "entry_time": "2025-05-28 10:01:00.772456",
+      "entry_price": 1.13088
     },
     "GBP_USD": {
       "signal": -1,
-      "entry_time": "2025-05-27 16:28:35.591682",
-      "entry_price": 1.35052
+      "entry_time": "2025-05-28 10:01:00.772456",
+      "entry_price": 1.34664
     },
     "XAU_USD": {
       "signal": -1,
-      "entry_time": "2025-05-27 16:28:35.591682",
-      "entry_price": 3304.45
+      "entry_time": "2025-05-28 10:01:00.772456",
+      "entry_price": 3305.315
     },
     "US30_USD": {
       "signal": -1,
-      "entry_time": "2025-05-27 16:28:35.591682",
-      "entry_price": 42358.6
+      "entry_time": "2025-05-28 10:01:00.772456",
+      "entry_price": 42356.0
     },
     "NAS100_USD": {
       "signal": -1,
-      "entry_time": "2025-05-27 16:28:35.591682",
-      "entry_price": 21418.5
+      "entry_time": "2025-05-28 10:01:00.772456",
+      "entry_price": 21419.4
     }
   },
-  "last_check": "2025-05-27 16:28:35.591682"
+  "last_check": "2025-05-28 11:25:03.248513"
 }

@@ -2,6 +2,7 @@
 """
 Execution logic: simulate a broker executing signals into trades.
 """
+import time
 import pandas as pd
 from typing import List, Dict
 import oandapyV20
@@ -183,18 +184,27 @@ class OandaExecutor:
         return self.place_order(signal=signal, price=price)
 import MetaTrader5 as mt5
 
-# In executor.py, update FTMOExecutor.__init__:
+
 class FTMOExecutor:
     def __init__(self, terminal: str, login: int, password: str, server: str):
         self.terminal = terminal
         self.login = login
         self.password = password
         self.server = server
+        # Add the missing symbol map
+        self.SYMBOL_MAP = {
+            "EUR_USD": "EURUSD",
+            "XAU_USD": "XAUUSD", 
+            "US30_USD": "US30",
+            "NAS100_USD": "US100",
+            "GBP_USD": "GBPUSD",
+            "USD_JPY": "USDJPY",
+            "AUD_USD": "AUDUSD",
+        }
         print(f"✅ FTMO executor initialized")
         
     def _ensure_connected(self):
         """Ensure we're connected to the right MT5 terminal"""
-        # Same logic as PepperstoneExecutor._ensure_connected()
         account_info = mt5.account_info()
         if account_info and account_info.login == self.login:
             return True
@@ -225,18 +235,16 @@ class FTMOExecutor:
         units: in base‐currency units (e.g. 1000 → 0.01 lots)
         price: ignored for market orders
         """
-        # Ensure we're connected to FTMO
         self._ensure_connected()
         
-        # MT5 uses no underscore, and 1 lot = 100,000 units
         MT5_SYMBOL_MAP = {
             "EUR_USD":  "EURUSD",
             "XAU_USD":  "XAUUSD",
-            "US30_USD": "US30",    # adjust to your terminal’s exact name
-            "NAS100_USD":"US100"  # adjust as needed
+            "US30_USD": "US30",
+            "NAS100_USD":"US100"
         }
         mt5_sym = MT5_SYMBOL_MAP.get(symbol, symbol.replace("_",""))
-        # ensure the symbol is available in Market Watch
+        
         if not mt5.symbol_select(mt5_sym, True):
             raise RuntimeError(f"MT5 symbol_select failed for {mt5_sym}")
 
@@ -244,7 +252,6 @@ class FTMOExecutor:
         if tick is None:
             raise RuntimeError(f"MT5 no tick data for {mt5_sym}")
 
-        # build the order request
         order_type = mt5.ORDER_TYPE_BUY if signal > 0 else mt5.ORDER_TYPE_SELL
         lot_size   = units / 100_000.0
         price_to_use = tick.ask if signal > 0 else tick.bid
@@ -264,20 +271,104 @@ class FTMOExecutor:
         result = mt5.order_send(request)
         if result is None:
             raise RuntimeError(f"MT5 order_send failed: {mt5.last_error()}")
-        # Convert the result (a namedtuple) to dict if possible
-        return result._asdict() if hasattr(result, "_asdict") else dict(result)
+            
+        result_dict = result._asdict() if hasattr(result, "_asdict") else dict(result)
         
-# Add this to your executor.py file
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"✅ FTMO: Order {result.order} executed successfully")
+            
+            time.sleep(0.1)
+            positions = mt5.positions_get(symbol=mt5_sym)
+            if positions:
+                our_positions = [p for p in positions if p.magic == 234000]
+                if our_positions:
+                    result_dict['position_ticket'] = our_positions[-1].ticket
+        else:
+            print(f"❌ FTMO: Order failed - {result.comment} (retcode: {result.retcode})")
+        
+        return result_dict
+
+    def get_open_positions(self, symbol: str = None) -> list:
+        """Get open positions, optionally filtered by symbol"""
+        self._ensure_connected()
+        
+        positions = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
+        if positions is None:
+            return []
+        
+        return [pos._asdict() if hasattr(pos, "_asdict") else dict(pos) for pos in positions]
+
+    def close_position(self, ticket: int) -> dict:
+        """Close a specific position by ticket ID"""
+        self._ensure_connected()
+        
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            raise RuntimeError(f"Position {ticket} not found")
+        
+        position = positions[0]
+        mt5_symbol = position.symbol
+        
+        tick = mt5.symbol_info_tick(mt5_symbol)
+        if tick is None:
+            raise RuntimeError(f"No tick data for {mt5_symbol}")
+        
+        if position.type == mt5.POSITION_TYPE_BUY:
+            order_type = mt5.ORDER_TYPE_SELL
+            price = tick.bid
+        else:
+            order_type = mt5.ORDER_TYPE_BUY  
+            price = tick.ask
+        
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": mt5_symbol,
+            "volume": position.volume,
+            "type": order_type,
+            "position": ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": position.magic,
+            "comment": f"Close position {ticket}",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        result = mt5.order_send(request)
+        if result is None:
+            raise RuntimeError(f"Failed to close position {ticket}: {mt5.last_error()}")
+        
+        return result._asdict() if hasattr(result, "_asdict") else dict(result)
+
+    def close_positions_by_symbol_and_magic(self, symbol: str, magic: int) -> list:
+        """Close all positions for a symbol with specific magic number"""
+        self._ensure_connected()
+        
+        mt5_symbol = self.SYMBOL_MAP.get(symbol, symbol.replace("_", ""))
+        positions = mt5.positions_get(symbol=mt5_symbol)
+        
+        if not positions:
+            return []
+        
+        closed_positions = []
+        for position in positions:
+            if position.magic == magic:
+                try:
+                    result = self.close_position(position.ticket)
+                    closed_positions.append(result)
+                    print(f"✅ Closed position {position.ticket}")
+                except Exception as e:
+                    print(f"❌ Failed to close position {position.ticket}: {e}")
+        
+        return closed_positions
 
 class PepperstoneExecutor:
     def __init__(self, terminal: str, login: int, password: str, server: str):
-        # Store credentials but don't connect yet
         self.terminal = terminal
         self.login = login
         self.password = password
         self.server = server
         
-        # Correct symbol mapping for Pepperstone
         self.SYMBOL_MAP = {
             "EUR_USD": "EURUSD",
             "XAU_USD": "XAUUSD",
@@ -291,12 +382,10 @@ class PepperstoneExecutor:
 
     def _ensure_connected(self):
         """Ensure we're connected to the right MT5 terminal"""
-        # Check if we're connected to the right account
         account_info = mt5.account_info()
         if account_info and account_info.login == self.login:
             return True
             
-        # Need to reconnect
         try:
             mt5.shutdown()
             time.sleep(0.2)
@@ -312,7 +401,6 @@ class PepperstoneExecutor:
         ):
             raise RuntimeError(f"Failed to connect to Pepperstone: {mt5.last_error()}")
             
-        # Verify connection
         account_info = mt5.account_info()
         if not account_info or account_info.login != self.login:
             raise RuntimeError(f"Connected to wrong account: {account_info.login if account_info else 'None'}")
@@ -320,38 +408,31 @@ class PepperstoneExecutor:
         return True
 
     def place_order(self, signal: int, symbol: str, units: int, price: float = None) -> dict:
-        # Ensure we're connected to Pepperstone
         self._ensure_connected()
         
-        # Get the correct Pepperstone symbol
         mt5_symbol = self.SYMBOL_MAP.get(symbol, symbol.replace("_", ""))
         
-        # Ensure symbol is selected
         if not mt5.symbol_select(mt5_symbol, True):
             available = [s.name for s in mt5.symbols_get() if symbol[:3] in s.name]
             raise RuntimeError(f"Pepperstone: Cannot select {mt5_symbol}. Similar symbols: {available[:5]}")
 
-        # Get current tick
         tick = mt5.symbol_info_tick(mt5_symbol)
         if tick is None:
             raise RuntimeError(f"Pepperstone: No tick data for {mt5_symbol}")
 
-        # Get symbol info for lot constraints
         symbol_info = mt5.symbol_info(mt5_symbol)
         if not symbol_info:
             raise RuntimeError(f"Pepperstone: No symbol info for {mt5_symbol}")
         
-        # Calculate lot size with minimum constraint
         lot_size = max(units / 100_000.0, symbol_info.volume_min)
         
-        # Prepare order
         order_type = mt5.ORDER_TYPE_BUY if signal > 0 else mt5.ORDER_TYPE_SELL
         price_to_use = tick.ask if signal > 0 else tick.bid
         
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": mt5_symbol,
-            "volume": round(lot_size, 2),  # Round to 2 decimal places
+            "volume": round(lot_size, 2),
             "type": order_type,
             "price": price_to_use,
             "deviation": 20,
@@ -361,29 +442,103 @@ class PepperstoneExecutor:
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         
-        # Log the order
         side = "BUY" if signal > 0 else "SELL"
         print(f"🛎️ Pepperstone: {side} {lot_size:.2f} lots of {mt5_symbol} @ {price_to_use}")
         
-        # Send order
         result = mt5.order_send(request)
         
         if result is None:
             raise RuntimeError(f"Pepperstone: order_send returned None")
         
-        # Log result
+        result_dict = result._asdict() if hasattr(result, "_asdict") else dict(result)
+        
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"✅ Pepperstone: Order {result.order} executed successfully")
+            
+            time.sleep(0.1)
+            positions = mt5.positions_get(symbol=mt5_symbol)
+            if positions:
+                our_positions = [p for p in positions if p.magic == 234001]
+                if our_positions:
+                    result_dict['position_ticket'] = our_positions[-1].ticket
         else:
             print(f"❌ Pepperstone: Order failed - {result.comment} (retcode: {result.retcode})")
             
+        return result_dict
+
+    def get_open_positions(self, symbol: str = None) -> list:
+        """Get open positions, optionally filtered by symbol"""
+        self._ensure_connected()
+        
+        positions = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
+        if positions is None:
+            return []
+        
+        return [pos._asdict() if hasattr(pos, "_asdict") else dict(pos) for pos in positions]
+
+    def close_position(self, ticket: int) -> dict:
+        """Close a specific position by ticket ID"""
+        self._ensure_connected()
+        
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            raise RuntimeError(f"Position {ticket} not found")
+        
+        position = positions[0]
+        mt5_symbol = position.symbol
+        
+        tick = mt5.symbol_info_tick(mt5_symbol)
+        if tick is None:
+            raise RuntimeError(f"No tick data for {mt5_symbol}")
+        
+        if position.type == mt5.POSITION_TYPE_BUY:
+            order_type = mt5.ORDER_TYPE_SELL
+            price = tick.bid
+        else:
+            order_type = mt5.ORDER_TYPE_BUY  
+            price = tick.ask
+        
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": mt5_symbol,
+            "volume": position.volume,
+            "type": order_type,
+            "position": ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": position.magic,
+            "comment": f"Close position {ticket}",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        result = mt5.order_send(request)
+        if result is None:
+            raise RuntimeError(f"Failed to close position {ticket}: {mt5.last_error()}")
+        
         return result._asdict() if hasattr(result, "_asdict") else dict(result)
 
-    def __del__(self):
-        try:
-            mt5.shutdown()
-        except:
-            pass
+    def close_positions_by_symbol_and_magic(self, symbol: str, magic: int) -> list:
+        """Close all positions for a symbol with specific magic number"""
+        self._ensure_connected()
+        
+        mt5_symbol = self.SYMBOL_MAP.get(symbol, symbol.replace("_", ""))
+        positions = mt5.positions_get(symbol=mt5_symbol)
+        
+        if not positions:
+            return []
+        
+        closed_positions = []
+        for position in positions:
+            if position.magic == magic:
+                try:
+                    result = self.close_position(position.ticket)
+                    closed_positions.append(result)
+                    print(f"✅ Closed position {position.ticket}")
+                except Exception as e:
+                    print(f"❌ Failed to close position {position.ticket}: {e}")
+        
+        return closed_positions
 
     def __del__(self):
         try:
