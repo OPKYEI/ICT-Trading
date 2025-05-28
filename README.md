@@ -199,7 +199,7 @@ The improved bot includes:
 - **Smart Entry Validation**: Prevents chasing extended moves after restarts
 - **Automatic Position Management**: Closes trades after 5 hours automatically
 
-See [TRADING_LOGIC.md](docs/TRADING_LOGIC.md) for detailed explanation.
+See [TRADING_LOGIC.md](TRADING_LOGIC.md) for detailed explanation.
 
 ### 2. How It Works
 
@@ -324,7 +324,7 @@ Currently not accepting contributions. For issues or questions, please open a Gi
 
 ## 📞 Support
 
-- GitHub Issues: [Create an issue](https://github.com/yourusername/ICT-ML-Trading/issues)
+- GitHub Issues: [Create an issue](https://github.com/OPKYEI/ICT-ML-Trading/issues)
 - Documentation: Check the `docs/` folder for detailed guides
 
 ---
