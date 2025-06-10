@@ -2,40 +2,40 @@
   "active_trades": {
     "GBP_USD": {
       "signal": -1,
-      "entry_time": "2025-06-10 01:01:00.696473",
-      "entry_price": 1.35382,
+      "entry_time": "2025-06-10 07:01:00.484848",
+      "entry_price": 1.35065,
       "position_tickets": {
-        "PEPPERSTONE": 157186846,
-        "FTMO": 252439943
+        "PEPPERSTONE": 157281454,
+        "FTMO": 252628447
       }
     },
     "XAU_USD": {
       "signal": -1,
-      "entry_time": "2025-06-10 01:01:00.696473",
-      "entry_price": 3307.385,
+      "entry_time": "2025-06-10 07:01:00.484848",
+      "entry_price": 3335.455,
       "position_tickets": {
-        "PEPPERSTONE": 157186865,
-        "FTMO": 252439946
+        "PEPPERSTONE": 157281456,
+        "FTMO": 252628456
       }
     },
     "US30_USD": {
       "signal": -1,
-      "entry_time": "2025-06-10 01:01:00.696473",
-      "entry_price": 42845.9,
+      "entry_time": "2025-06-10 07:01:00.484848",
+      "entry_price": 42741.9,
       "position_tickets": {
-        "PEPPERSTONE": 157186868,
-        "FTMO": 252439959
+        "PEPPERSTONE": 157281460,
+        "FTMO": 252628477
       }
     },
     "NAS100_USD": {
       "signal": -1,
-      "entry_time": "2025-06-10 01:01:00.696473",
-      "entry_price": 21895.4,
+      "entry_time": "2025-06-10 07:01:00.484848",
+      "entry_price": 21818.9,
       "position_tickets": {
-        "PEPPERSTONE": 157186881,
-        "FTMO": 252439978
+        "PEPPERSTONE": 157281465,
+        "FTMO": 252628484
       }
     }
   },
-  "last_check": "2025-06-10 01:01:00.696473"
+  "last_check": "2025-06-10 07:01:00.484848"
 }

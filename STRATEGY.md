@@ -10,6 +10,7 @@ This guide explains the ICT concepts implemented in the ICT-ML-Trading system an
 5. [Time-Based Concepts](#time-based-concepts)
 6. [Advanced Patterns](#advanced-patterns)
 7. [How ML Combines These Concepts](#ml-integration)
+8. [Modern Implementation](#modern-implementation)
 
 ## Overview
 
@@ -314,6 +315,46 @@ The ML model generates signals when:
 - Insufficient confluence
 - Range-bound structure
 
+## Modern Implementation
+
+### Symbol-Specific Model Architecture
+
+The current system implements several enhancements to optimize ICT concept application:
+
+**Individual Model Training**:
+- Each trading instrument (EUR_USD, GBP_USD, XAU_USD, etc.) has its own dedicated ML model
+- Models learn instrument-specific market behavior and volatility patterns
+- Different assets exhibit unique ICT pattern characteristics (forex vs. indices vs. metals)
+
+**Model Selection and Loading**:
+- ModelManager automatically maps symbols to their respective trained models
+- Best-performing algorithm selected per instrument (typically XGBoost)
+- Models loaded on-demand for efficient memory usage
+
+### 5-Bar Position Management
+
+**Institutional Timeframe Alignment**:
+- Positions held for exactly 5 hours (5 bars on H1 timeframe)
+- Matches typical institutional order lifecycle
+- Prevents overholding positions beyond optimal window
+
+**State Persistence Logic**:
+- Trade state maintained in `trade_state.json` across system restarts
+- Prevents duplicate entries within the 5-bar window
+- Smart entry validation for late entries (price movement checks)
+
+### Risk Management Integration
+
+**Standardized Position Sizing**:
+- 10,000 units = 0.1 lot consistently across all brokers and instruments
+- Eliminates broker-specific sizing confusion
+- Ensures consistent risk exposure regardless of instrument specifications
+
+**Multi-Broker Risk Distribution**:
+- Identical positions executed across multiple brokers simultaneously
+- Diversifies execution risk and broker dependency
+- Maintains consistent ICT-based entry timing across all accounts
+
 ## Practical Examples
 
 ### Example 1: Bullish Setup
@@ -323,7 +364,9 @@ Time: London Open (8:00 AM)
 Structure: Series of HH/HL
 Event: Price sweeps SSL below recent low
 Action: Forms bullish engulfing at old bearish OB
-Signal: ML model outputs 0.89 probability → BUY
+Model: EUR_USD-specific model outputs 0.89 probability → BUY
+Execution: 10,000 units across OANDA, FTMO, Pepperstone
+Duration: Position held for exactly 5 hours, then auto-closed
 ```
 
 ### Example 2: Bearish Setup
@@ -333,7 +376,9 @@ Time: NY Kill Zone (1:30 PM)
 Structure: Confirmed MSS (broke recent HL)
 Event: Retraces to 70% fib (OTE zone)
 Action: Rejection at bearish breaker block
-Signal: ML model outputs 0.92 probability → SELL
+Model: XAU_USD-specific model outputs 0.92 probability → SELL
+Execution: 10,000 units across all configured brokers
+Duration: Position managed within 5-bar window
 ```
 
 ## Risk Management Integration
@@ -351,9 +396,10 @@ While the ML model provides entry signals, risk management follows ICT principle
    - Structure-based targets
 
 3. **Position Sizing**:
-   - Based on account risk
-   - Adjusted for volatility
-   - Scaled with confidence
+   - Standardized 10,000 units (0.1 lot) for consistent risk
+   - Based on account risk tolerance
+   - Adjusted for instrument volatility
+   - Scaled with model confidence
 
 ## Performance Optimization
 
@@ -363,20 +409,23 @@ While the ML model provides entry signals, risk management follows ICT principle
 2. **Pattern Recognition**: ML excels at finding complex relationships
 3. **Adaptability**: Models adjust to changing market conditions
 4. **Probability-Based**: Both ICT and ML focus on high-probability setups
+5. **Instrument Specificity**: Individual models capture unique market characteristics
 
 ### Continuous Improvement
 
 The system improves through:
-- Regular retraining with new data
-- Feature engineering refinements
-- Hyperparameter optimization
-- Market regime adaptation
+- Regular retraining with new data for each instrument
+- Feature engineering refinements based on instrument behavior
+- Hyperparameter optimization per symbol
+- Market regime adaptation through rolling windows
 
 ## Conclusion
 
 The ICT-ML-Trading system combines the best of both worlds:
 - ICT provides the fundamental market understanding
 - ML provides the pattern recognition and probability assessment
-- Together, they create a robust, adaptive trading system
+- Symbol-specific models capture unique instrument characteristics
+- Standardized execution ensures consistent risk management
+- 5-bar window logic aligns with institutional timeframes
 
-By encoding institutional behavior patterns into features and letting machine learning find the optimal combinations, we achieve consistent profitability while maintaining the logical foundation of ICT concepts.
+By encoding institutional behavior patterns into features and letting machine learning find the optimal combinations for each specific instrument, we achieve consistent profitability while maintaining the logical foundation of ICT concepts. The modern implementation ensures scalable, robust execution across multiple brokers with standardized risk management.
