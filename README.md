@@ -8,9 +8,10 @@ ICT-ML-Trading is a comprehensive trading framework that:
 - **Implements ICT Concepts**: Market structure analysis, PD Arrays, Order Blocks, Fair Value Gaps, Liquidity concepts, and more
 - **Uses Machine Learning**: XGBoost, Random Forest, Gradient Boosting, and Logistic Regression models with 89-91% accuracy
 - **Multi-Broker Support**: Trades simultaneously on OANDA, FTMO, Pepperstone, and any MT5-compatible broker
-- **Real-Time Trading**: Executes trades every hour based on ML predictions
-- **Risk Management**: Configurable position sizing, optional TP/SL settings
+- **Real-Time Trading**: Executes trades every hour based on ML predictions with 5-bar window logic
+- **Risk Management**: Standardized position sizing (10,000 units = 0.1 lot), optional TP/SL settings
 - **Backtesting**: Comprehensive backtesting with performance metrics
+- **Secure Configuration**: Environment variable-based credential management
 
 ## 📊 Performance
 
@@ -29,6 +30,7 @@ Based on extensive testing:
    - Support for Dukascopy CSV format
    - Real-time OANDA API integration
    - Automatic data validation and cleaning
+   - Optional data collection script for automated downloads
 
 2. **Feature Engineering (ICT Concepts)**
    - **Market Structure**: HH/HL/LH/LL detection, trend classification, MSS/BOS
@@ -39,6 +41,7 @@ Based on extensive testing:
    - **Technical Indicators**: ATR, RSI, Bollinger Bands, Moving Averages
 
 3. **Machine Learning Pipeline**
+   - Symbol-specific model training and loading
    - Automated feature selection
    - Walk-forward analysis with embargo
    - Nested cross-validation
@@ -46,10 +49,12 @@ Based on extensive testing:
    - Support for multiple models (XGBoost, RF, GB, LR, SVM)
 
 4. **Trading Execution**
-   - Signal generation from ML predictions
+   - Signal generation from symbol-specific ML predictions
    - Multi-broker execution (simultaneous)
-   - Position tracking and duplicate prevention
-   - Automatic broker reconnection handling
+   - 5-bar window position management
+   - State persistence across restarts
+   - Automatic position closing after 5 hours
+   - Standardized position sizing across all brokers
 
 ## 📋 Prerequisites
 
@@ -94,48 +99,68 @@ Note: MT5 package only works on Windows. For Linux/Mac, use only API-based broke
 
 ## ⚙️ Configuration
 
-### 1. Broker Setup
+### 1. Environment Setup (Secure Credentials)
 
-Edit `src/utils/config.py`:
+The system now uses environment variables for secure credential management:
+
+```bash
+# Copy the environment template
+cp .env.example .env
+
+# Edit .env with your actual broker credentials
+```
+
+**Edit `.env` file with your real credentials:**
+
+```bash
+# === OANDA API Credentials ===
+OANDA_API_TOKEN=your_real_oanda_api_token_here
+OANDA_ACCOUNT_ID=your_real_oanda_account_id_here
+OANDA_ENV=practice
+
+# === FTMO MT5 Credentials ===
+FTMO_MT5_LOGIN=your_real_ftmo_login_number
+FTMO_MT5_PASSWORD=your_real_ftmo_password
+FTMO_MT5_SERVER=FTMO-Demo
+
+# === Pepperstone MT5 Credentials ===
+PEPPERSTONE_MT5_LOGIN=your_real_pepperstone_login_number
+PEPPERSTONE_MT5_PASSWORD=your_real_pepperstone_password
+PEPPERSTONE_MT5_SERVER=Pepperstone-Demo
+
+# === Risk Settings ===
+USE_TP_SL=False
+TAKE_PROFIT_PIPS=10
+STOP_LOSS_PIPS=5
+```
+
+**Important**: Never commit the `.env` file to version control. It contains your sensitive credentials and is automatically ignored by git.
+
+### 2. Broker Configuration
+
+The active brokers and instruments are configured in `src/utils/config.py`:
 
 ```python
-# OANDA (API-based)
-OANDA_API_TOKEN = "your-oanda-api-token"
-OANDA_ACCOUNT_ID = "your-account-id"
-OANDA_ENV = "practice"  # or "live"
-
-# FTMO (MT5-based)
-FTMO_MT5_TERMINAL = r"C:\Program Files\FTMO Global Markets MT5 Terminal\terminal64.exe"
-FTMO_MT5_LOGIN = 123456
-FTMO_MT5_PASSWORD = "your-password"
-FTMO_MT5_SERVER = "FTMO-Demo"
-
-# Pepperstone (MT5-based)
-PEPPERSTONE_MT5_TERMINAL = r"C:\Pepperstone MetaTrader 5\terminal64.exe"
-PEPPERSTONE_MT5_LOGIN = 789012
-PEPPERSTONE_MT5_PASSWORD = "your-password"
-PEPPERSTONE_MT5_SERVER = "Pepperstone-Demo"
-
-# Active brokers
+# Active brokers (only configured brokers will be used)
 BROKERS = ["OANDA", "FTMO", "PEPPERSTONE"]
 
 # Instruments to trade
 SYMBOLS = ["EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"]
 ```
 
-### 2. Risk Management
+The system automatically detects which brokers have valid credentials and only trades with properly configured brokers.
 
-```python
-# Position sizing
-units = 1000  # 0.01 lots for MT5, adjust as needed
+### 3. Validate Configuration
 
-# Optional TP/SL
-USE_TP_SL = False  # Set to True to use fixed TP/SL
-TAKE_PROFIT_PIPS = 50
-STOP_LOSS_PIPS = 25
+Test your setup:
+
+```bash
+python -c "from src.utils.config import validate_config; validate_config()"
 ```
 
-### 3. MT5 Terminal Setup
+This will verify that all required credentials are properly set for your active brokers.
+
+### 4. MT5 Terminal Setup
 
 For MT5 brokers (FTMO, Pepperstone):
 1. Install MT5 terminal from broker
@@ -145,7 +170,19 @@ For MT5 brokers (FTMO, Pepperstone):
 
 ## 📊 Data Preparation
 
-### 1. Historical Data Format
+### Option 1: Use Included Data Collection Script (Recommended)
+
+For automated data collection, you can use the included data collection script:
+
+```bash
+python collect_data.py  # If you have this script available
+```
+
+This script will automatically download and format the required historical data for all configured symbols.
+
+### Option 2: Manual Data Setup
+
+#### Historical Data Format
 
 Place CSV files in `data/` folder with format:
 ```
@@ -153,85 +190,134 @@ timestamp,open,high,low,close,volume
 2024-01-01 00:00:00,1.0950,1.0955,1.0945,1.0952,1250
 ```
 
-### 2. Download from Dukascopy
+#### Download from Dukascopy
 
 1. Visit [Dukascopy Historical Data](https://www.dukascopy.com/swiss/english/marketwatch/historical/)
 2. Select instrument and date range
 3. Download as CSV
-4. Place in `data/` folder as `SYMBOL_60m.csv`
+4. Place in `data/` folder as `SYMBOL_60m.csv` (e.g., `EURUSD=X_60m.csv`)
+
+**Required file naming convention:**
+- `EURUSD=X_60m.csv` for EUR_USD
+- `GBPUSD=X_60m.csv` for GBP_USD
+- `XAUUSD=X_60m.csv` for XAU_USD
+- `USA30=X_60m.csv` for US30_USD
+- `USATECH=X_60m.csv` for NAS100_USD
 
 ## 🚂 Training Models
 
 ### 1. First-Time Training (5-6 hours)
 
 ```bash
-python run_pipeline.py
+python train_models.py
 ```
 
 This will:
-- Load and align multi-timeframe data
-- Engineer 50+ ICT features
-- Train multiple models with nested CV
-- Save best model to `checkpoints/`
+- Load and align multi-timeframe data for all symbols
+- Engineer 50+ ICT features for each symbol
+- Train multiple models with nested CV for each symbol
+- Save the best model for each symbol to `checkpoints/`
 - Generate performance reports in `reports/`
+
+**Key Features:**
+- **Symbol-Specific Models**: Each trading pair gets its own optimized model
+- **Checkpoint Recovery**: Resume training if interrupted
+- **Comprehensive Evaluation**: Walk-forward testing with time-series validation
+- **Model Selection**: Automatic best-performing model selection per symbol
 
 ### 2. Using Pre-trained Models
 
-If training was completed before, models are loaded from checkpoints automatically.
+If training was completed before, symbol-specific models are loaded from checkpoints automatically. The system includes a ModelManager that:
+- Maps trading symbols to their respective model files
+- Loads models on-demand for efficiency
+- Validates model availability before trading
 
 ## 🤖 Live Trading
 
 ### 1. Start Trading Bot
 
 ```bash
-python live_trade_multiinstrument.py
+python live_trading_bot.py
 ```
 
-**Important**: We recommend using the improved version with 5-bar window logic:
-
-```bash
-python live_trade_multiinstrument_improved.py
-```
-
-The improved bot includes:
+**Enhanced Features** in the latest version:
 - **5-Bar Window Logic**: Trades are held for exactly 5 hours (matching ML model's prediction window)
-- **State Persistence**: Survives restarts without duplicate trades
+- **State Persistence**: Survives restarts without duplicate trades using `trade_state.json`
 - **Smart Entry Validation**: Prevents chasing extended moves after restarts
 - **Automatic Position Management**: Closes trades after 5 hours automatically
-
-See [TRADING_LOGIC.md](TRADING_LOGIC.md) for detailed explanation.
+- **Symbol-Specific Models**: Uses the best model for each trading pair
+- **Standardized Position Sizing**: 10,000 units = 0.1 lot consistently across all brokers
 
 ### 2. How It Works
 
 The bot will:
-- Load the best model from checkpoints
-- Connect to all configured brokers
+- Load symbol-specific models from checkpoints for all configured instruments
+- Connect to all configured brokers (skips unconfigured ones gracefully)
 - Fetch latest market data every hour at :01
-- Generate signals based on 5-bar forward prediction
+- Generate signals based on 5-bar forward prediction using the appropriate model
 - Execute trades with proper window management
-- Maintain state in `trade_state.json`
+- Maintain state in `trade_state.json` for persistence
+- Automatically close positions after 5 hours
 - Log all activities to `logs/live_trade.log`
 
-### 3. Monitor Performance
+### 3. Position Management Logic
+
+**5-Bar Window System:**
+- **Entry**: New positions opened based on ML signals
+- **Hold Period**: Positions held for exactly 5 hours (5 bars on 1H timeframe)
+- **Auto-Close**: Positions automatically closed after 5 hours
+- **Same Direction**: No new trades in same direction within 5-hour window
+- **Opposite Direction**: Allowed (closes existing position first)
+
+**State Persistence:**
+- Active trades stored in `trade_state.json`
+- System remembers positions across restarts
+- Prevents duplicate trades after interruptions
+- Validates price movement for late entries
+
+### 4. Monitor Performance
 
 - Check broker terminals for executed trades
 - Review `logs/live_trade.log` for detailed execution info
 - Monitor `trade_state.json` for active positions
 - Verify 5-hour automatic closures
+- Track individual symbol performance
 
-### 4. Stop Trading
+### 5. Stop Trading
 
-Press `Ctrl+C` to stop the bot gracefully. State is preserved for restart.
+Press `Ctrl+C` to stop the bot gracefully. State is preserved in `trade_state.json` for seamless restart.
 
 ## 📈 Backtesting
 
-Backtesting is integrated into the training pipeline. Results include:
-- Equity curve visualization
+Backtesting is integrated into the training pipeline (`train_models.py`). Results include:
+- Equity curve visualization per symbol
 - Maximum drawdown analysis
 - Trade-by-trade performance
 - Sharpe ratio and other metrics
+- Symbol-specific performance attribution
 
-## 🔧 Troubleshooting
+## 🔧 Advanced Analysis
+
+For deeper performance analysis:
+
+```bash
+python advanced_analysis.py
+```
+
+This provides:
+- Monte Carlo bootstrap analysis
+- Regime-based walk-forward testing
+- Advanced performance attribution
+- Cross-symbol correlation analysis
+
+## 🛠️ Troubleshooting
+
+### Environment Variable Issues
+
+**Error**: "Missing required environment variables"
+- Ensure `.env` file exists and contains all required credentials
+- Check that variable names match exactly (case-sensitive)
+- Verify no extra spaces around the `=` sign in `.env`
 
 ### MT5 Connection Issues
 
@@ -248,6 +334,14 @@ Backtesting is integrated into the training pipeline. Results include:
 - Update symbol mapping in executor classes
 - Some brokers use different naming (e.g., "US30" vs "US30.cash")
 
+### Model Loading Issues
+
+**Error**: "No model file found for symbol"
+- Ensure training completed successfully for all symbols
+- Check `checkpoints/` directory for model files
+- Verify file naming matches symbol mapping in ModelManager
+- Re-run `train_models.py` if models are missing
+
 ### Multiple MT5 Instances
 
 The system handles multiple MT5 connections automatically by:
@@ -261,24 +355,28 @@ The system handles multiple MT5 connections automatically by:
 - Ensure CSV files have at least 120 bars
 - Check data format matches expected columns
 - Verify timestamp format is correct
+- Use the data collection script for automated data preparation
 
 ## 📁 Project Structure
 
 ```
 ICT-ML-Trading/
-├── data/                  # Historical price data
-├── checkpoints/           # Saved models
-├── reports/              # Performance reports
-├── logs/                 # Trading logs
+├── data/                    # Historical price data
+├── checkpoints/             # Saved symbol-specific models
+├── reports/                # Performance reports
+├── logs/                   # Trading logs
 ├── src/
-│   ├── data_processing/  # Data loading and validation
-│   ├── features/         # ICT feature engineering
-│   ├── ml_models/        # Model training and evaluation
-│   ├── trading/          # Strategy and execution
-│   └── utils/           # Configuration and helpers
-├── run_pipeline.py       # Training script
-├── live_trade_multiinstrument.py  # Live trading bot
-└── requirements.txt      # Dependencies
+│   ├── data_processing/    # Data loading and validation
+│   ├── features/           # ICT feature engineering
+│   ├── ml_models/          # Model training and evaluation
+│   ├── trading/            # Strategy and execution
+│   └── utils/              # Configuration and helpers
+├── train_models.py         # Model training pipeline
+├── live_trading_bot.py     # Live trading execution
+├── advanced_analysis.py    # Extended analysis tools
+├── .env.example           # Environment template
+├── .env                   # Your credentials (not committed)
+└── requirements.txt       # Dependencies
 ```
 
 ## 🎯 ICT Concepts Implemented
@@ -298,15 +396,17 @@ ICT-ML-Trading/
 2. **Resource Allocation**: Close unnecessary programs during training
 3. **Data Quality**: Use high-quality tick data for better features
 4. **Model Selection**: XGBoost typically performs best
-5. **Position Sizing**: Start small and scale up gradually
+5. **Position Sizing**: Start small and scale up gradually (system uses standardized 10k units)
+6. **Symbol Selection**: Focus on high-accuracy symbols from training reports
 
 ## 🔒 Security Best Practices
 
-1. **Never commit credentials** to version control
-2. **Use environment variables** for sensitive data
-3. **Enable 2FA** on all broker accounts
-4. **Monitor account activity** regularly
-5. **Set maximum position limits** with brokers
+1. **Environment Variables**: All credentials stored in `.env` file (never committed)
+2. **Git Security**: `.env` automatically ignored by `.gitignore`
+3. **2FA**: Enable 2FA on all broker accounts
+4. **Monitor Activity**: Regularly check account activity
+5. **Position Limits**: Set maximum position limits with brokers
+6. **Demo Testing**: Always test on demo accounts first
 
 ## ⚠️ Risk Disclaimer
 
@@ -325,7 +425,7 @@ Currently not accepting contributions. For issues or questions, please open a Gi
 ## 📞 Support
 
 - GitHub Issues: [Create an issue](https://github.com/OPKYEI/ICT-ML-Trading/issues)
-- Documentation: Check the `docs/` folder for detailed guides
+- Documentation: Check the additional documentation files for detailed guides
 
 ---
 
