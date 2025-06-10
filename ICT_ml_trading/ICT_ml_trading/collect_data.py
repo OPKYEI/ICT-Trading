@@ -5,6 +5,7 @@ Ultimate Multi-Source Market Data Downloader
 - Proper volume handling (tick volume for forex)
 - Comprehensive alternative source suggestions
 - Auto-fallback between sources
+- Gap filling for continuous data (matching feature engineering expectations)
 """
 
 import os
@@ -20,6 +21,55 @@ from io import StringIO
 # Global configuration
 ALPHA_VANTAGE_API = ""
 TWELVE_DATA_API = ""
+
+def fill_gaps_for_feature_engineering(df):
+    """
+    Fill all time gaps to create continuous hourly data (no weekends/holiday gaps)
+    This matches the format that your feature engineering expects
+    """
+    print(f"   🔧 Filling gaps to create continuous data...")
+    
+    # Make a copy to avoid modifying original
+    df = df.copy()
+    
+    # Ensure we have a datetime column
+    if 'datetime' not in df.columns:
+        if 'timestamp' in df.columns:
+            df['datetime'] = pd.to_datetime(df['timestamp'], format='%d.%m.%Y %H:%M:%S.%f')
+        else:
+            print(f"   ❌ No datetime or timestamp column found!")
+            return df
+    
+    # Set datetime as index and sort
+    df = df.set_index('datetime').sort_index()
+    
+    # Create complete hourly range with NO gaps
+    full_range = pd.date_range(
+        start=df.index.min(), 
+        end=df.index.max(), 
+        freq='h'
+    )
+    
+    print(f"   📊 Original data: {len(df):,} bars")
+    print(f"   📊 Full range: {len(full_range):,} hours")
+    
+    # Reindex to fill ALL gaps (weekends, holidays, everything)
+    df_filled = df.reindex(full_range)
+    
+    # Forward fill missing values (carry Friday close through weekend) - FIXED
+    df_filled = df_filled.ffill()
+    
+    # Reset index and recreate timestamp column
+    df_filled.reset_index(inplace=True)
+    df_filled.rename(columns={'index': 'datetime'}, inplace=True)
+    df_filled['timestamp'] = df_filled['datetime'].dt.strftime('%d.%m.%Y %H:%M:%S.000')
+    
+    # Return only the required columns in correct order
+    final_df = df_filled[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+    
+    print(f"   ✅ Continuous data: {len(final_df):,} bars (no gaps)")
+    
+    return final_df
 
 def get_comprehensive_sources():
     """All available FREE sources for market data"""
@@ -568,15 +618,17 @@ def multi_source_download(symbol, years, output_dir):
             hourly['timestamp'] = hourly['datetime'].dt.strftime('%d.%m.%Y %H:%M:%S.000')
             combined = hourly
         
+        # Fill gaps to match feature engineering expectations
+        combined_no_gaps = fill_gaps_for_feature_engineering(combined)
+
         # Save with naming convention
         os.makedirs(output_dir, exist_ok=True)
         filename = f"{symbol}=X_60m.csv"
         filepath = os.path.join(output_dir, filename)
+
+        combined_no_gaps.to_csv(filepath, index=False, float_format='%.5f')
         
-        final_df = combined[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
-        final_df.to_csv(filepath, index=False, float_format='%.5f')
-        
-        print(f"   💾 Saved: {filename} ({len(final_df):,} hourly bars)")
+        print(f"   💾 Saved: {filename} ({len(combined_no_gaps):,} hourly bars)")
         print(f"   📅 Range: {combined['datetime'].min().date()} to {combined['datetime'].max().date()}")
         print(f"   📊 Sources: {', '.join(successful_sources)}")
         
@@ -625,6 +677,7 @@ def main():
     print("🔧 Features:")
     print("   ✅ Multiple FREE sources with auto-fallback")
     print("   ✅ Proper volume handling (tick volume for forex)")
+    print("   ✅ Gap filling for continuous data (feature engineering ready)")
     print("   ✅ Comprehensive alternative source suggestions")
     print("   ✅ File format: SYMBOL=X_60m.csv")
     print("=" * 70)
@@ -688,6 +741,7 @@ def main():
     print(f"   📁 Output: {output_dir}")
     print(f"   📏 Format: SYMBOL=X_60m.csv")
     print(f"   📊 Volume: Explained above (forex=0, stocks=real)")
+    print(f"   🔧 Gap filling: Continuous hourly data (no weekends)")
     
     proceed = input(f"\nProceed with multi-source download? (y/n): ").lower()
     if proceed != 'y':
@@ -727,6 +781,7 @@ def main():
         print(f"📊 File naming: SYMBOL=X_60m.csv")
         print(f"📈 Volume handling: Proper for each asset class")
         print(f"🔄 Sources combined for maximum coverage")
+        print(f"🔧 Gap filling: Continuous data ready for feature engineering")
         
         # Show sample files
         if os.path.exists(output_dir):
@@ -745,11 +800,12 @@ def main():
                 except:
                     pass
     
-    print(f"\n💡 VOLUME DATA NOTES:")
+    print(f"\n💡 DATA FORMAT NOTES:")
     print(f"   📊 Forex: Volume = 0 (no centralized exchange)")
     print(f"   📈 Stocks: Volume = actual shares traded")
     print(f"   🏅 Futures: Volume = actual contracts traded")
-    print(f"   💰 This is industry standard behavior")
+    print(f"   🔧 Gap filling: Continuous hourly data (weekends filled)")
+    print(f"   💰 This matches your feature engineering expectations")
 
 if __name__ == "__main__":
     try:
