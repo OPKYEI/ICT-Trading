@@ -145,7 +145,7 @@ The active brokers and instruments are configured in `src/utils/config.py`:
 BROKERS = ["OANDA", "FTMO", "PEPPERSTONE"]
 
 # Instruments to trade
-SYMBOLS = ["EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"]
+SYMBOLS = ["EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"] #add as many as you will like. but you will need to train models for each
 ```
 
 The system automatically detects which brokers have valid credentials and only trades with properly configured brokers.
