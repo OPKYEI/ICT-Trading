@@ -1,0 +1,34 @@
+# Core ML & Data Science
+pandas==2.3.0
+numpy==2.3.0
+scikit_learn==1.7.0
+xgboost==3.0.2
+joblib==1.4.2
+scipy==1.15.3
+
+# Configuration Management
+python-dotenv>=1.0.0
+
+# Trading APIs & Brokers
+oandapyv20==0.7.2
+MetaTrader5>=5.0.4993  # Windows only for MT5 brokers
+fxcmpy==0.0.0.1  # FXCM API (if using FXCM)
+
+# Data Processing & Utilities
+pytz==2024.1
+tqdm==4.66.4
+
+# Visualization
+matplotlib==3.10.3
+
+# Data Sources
+yfinance==0.2.51
+
+# Automation & Scheduling
+schedule==1.2.2
+
+# Development & Testing
+pytest==8.3.5
+
+# Build tools
+setuptools==80.7.1
