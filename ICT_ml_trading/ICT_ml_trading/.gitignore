@@ -43,8 +43,7 @@ logs/
 reports/
 
 # Model artifacts & checkpoints
-checkpoints/
-results/
+
 
 # Environment files (include your secrets here!)
 .env
