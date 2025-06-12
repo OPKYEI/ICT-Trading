@@ -83,12 +83,18 @@ class ModelManager:
     def _create_symbol_mapping(self):
         """Map trading symbols to their CSV file names"""
         return {
+            "GBP_JPY": "GBPJPY=X_60m",
+            "GBPJPY": "GBPJPY=X_60m",
             "GBP_USD": "GBPUSD=X_60m",
             "GBPUSD": "GBPUSD=X_60m",
             "EUR_USD": "EURUSD=X_60m", 
             "EURUSD": "EURUSD=X_60m",
+            "NZD_CAD": "NZDCAD=X_60m",
+            "NZDCAD": "NZDCAD=X_60m",
             "USD_JPY": "USDJPY=X_60m",
             "USDJPY": "USDJPY=X_60m",
+            "AUD_CHF": "AUDUCH=X_60m",
+            "AUDCHF": "AUDUCH=X_60m",
             "AUD_USD": "AUDUSD=X_60m",
             "AUDUSD": "AUDUSD=X_60m",
             "USD_CAD": "USDCAD=X_60m",

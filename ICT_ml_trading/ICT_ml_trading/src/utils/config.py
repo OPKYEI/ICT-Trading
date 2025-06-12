@@ -30,6 +30,7 @@ PIP_SIZE_DICT = {
     "DEFAULT": 0.0001,   # standard FX pairs
     "USD_JPY":  0.01,     # JPY crosses
     "XAU_USD": 0.01,     # gold
+    "GBP_JPY": 0.01,
     "XAG_USD": 0.001,    # silver
     "US30_USD": 1.0,     # Dow Jones index
     "NAS100_USD": 1.0,   # Nasdaq-100 index
@@ -41,7 +42,7 @@ DEFAULT_PIP_SIZE = PIP_SIZE_DICT["DEFAULT"]
 BROKERS = ["OANDA", "PEPPERSTONE", "FTMO", "FXCM"] # you can add more
 
 # === Instruments to trade ===
-SYMBOLS = ["AUD_USD", "USD_JPY", "EUR_USD", "GBP_USD", "XAU_USD", "US30_USD", "NAS100_USD"] #add more as you desire
+SYMBOLS = ["GBP_JPY", "USD_JPY", "EUR_USD", "USD_CAD", "US30_USD", "XAG_USD"] #add more as you desire
 
 # === OANDA Credentials ===
 OANDA_API_TOKEN  = os.getenv('OANDA_API_TOKEN', 'your_token_here')
