@@ -469,6 +469,45 @@ This ensures standardized risk across all brokers.
 
 ## Common Issues
 
+### Issue: `quickfix` fails to build on Windows (MSVC errors, no Conda installed)
+
+**Symptoms**:
+- `fatal error C1083: Cannot open include file: 'tr1/memory'`
+- `cl : Command line warning D9002 : ignoring unknown option '-std=c++0x'`
+- `cl : Command line error D8021 : invalid numeric argument '/Wno-deprecated'`
+
+These errors appear because `quickfix` only publishes source packages on PyPI and its build scripts expect a GCC/Clang toolchain. The fastest workaround on locked-down Windows machines (where WSL/sudo is disabled) is to install the light-weight **Miniforge** Conda distribution and pull the pre-built `quickfix` wheel from conda-forge.
+
+**Run the following PowerShell commands (copy/paste as a block):**
+
+```powershell
+# 1. Download and silently install Miniforge (Conda) for your user only
+$MiniforgeUrl = "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Windows-x86_64.exe"
+$Installer = "$env:TEMP\Miniforge3.exe"
+Invoke-WebRequest -Uri $MiniforgeUrl -OutFile $Installer
+Start-Process -FilePath $Installer -ArgumentList "/InstallationType=JustMe", \
+    "/AddToPath=1", "/RegisterPython=0", "/NoRegistry=1", "/S" -Wait
+
+# 2. Initialize Conda for PowerShell (then open a NEW PowerShell window afterwards)
+& "$env:USERPROFILE\Miniforge3\Scripts\conda.exe" init powershell
+
+# 3. Create and activate a dedicated environment for this project
+conda create -y -n ict-trading python=3.12
+conda activate ict-trading
+
+# 4. Install quickfix from conda-forge (pre-built, no MSVC compile step)
+conda install -y -c conda-forge quickfix
+
+# 5. Install the rest of the project requirements with pip
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 6. Sanity check
+python -c "import quickfix; print('quickfix', quickfix.__version__)"
+```
+
+> ✅ After these steps, `quickfix` is installed in the `ict-trading` Conda environment along with the rest of the dependencies, so running the training or live-trading scripts will succeed without MSVC build failures.
+
 ### Issue: "Missing required environment variables"
 
 **Solution**:
